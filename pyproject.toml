@@ -1,23 +1,19 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "torchtitanturbo"
-version = "0.1.0"
-description = "NPU-optimized converters for TorchTitan"
+name = "torchtitan-ascend"
+version = "0.1.0.dev0"
+description = "Ascend core integration and minimal Qwen3 recipe for TorchTitan"
+requires-python = ">=3.12"
 readme = "README.md"
-requires-python = ">=3.8"
-dependencies = [
-    "torchtitan",
-    "torch-npu",
-]
+license = "Apache-2.0"
+license-files = ["LICENSE", "LICENSE-BSD-3-Clause", "Third_Party_Open_Source_Software_Notice"]
+dependencies = ["torchtitan==0.2.2"]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+test = ["pytest"]
 
 [tool.setuptools.packages.find]
-include = ["torchtitanturbo*"]
-
-[tool.setuptools.package-data]
-torchtitanturbo = ["py.typed"]
+include = ["torchtitan_ascend*"]

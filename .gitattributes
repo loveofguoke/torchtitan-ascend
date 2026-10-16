@@ -1,0 +1,2 @@
+# Preserve unified-diff context and git-format-patch signatures.
+*.patch -whitespace
