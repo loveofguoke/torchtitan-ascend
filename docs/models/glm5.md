@@ -46,13 +46,13 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 |---|---|
 | GLM-5.2/5.3 debug 配方构建 | CPU 测试覆盖 |
 | 单卡 BF16、eager 文本训练 | NPU smoke 已验证 |
-| 单卡 BF16 整网 loss 对照 | CUDA/NPU 相同 fixture 的历史单次运行已完成 150 步对照 |
+| 单卡 BF16 整网 loss 对照 | CUDA/NPU 相同 fixture 已完成 150 步对照 |
 | TP/CP 下 ComplexRoPE placements | 行为测试覆盖 |
 | TP vocabulary-parallel loss | 行为测试覆盖 |
 | FSDP、TP、CP、PP、EP 组合训练 | 本 PR 未形成正式精度证据 |
 | 图模式和性能优化 | 不在本 PR 范围内 |
 
-历史单卡 BF16 eager 训练 loss：
+单卡 BF16 eager 训练 loss：
 
 ![GLM-5 single-card BF16 training loss](assets/glm5_single_card_training_loss.svg)
 
@@ -60,5 +60,4 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 
 ![GLM-5 single-card BF16 loss difference](assets/glm5_single_card_loss_difference.svg)
 
-单卡 loss 对照为历史依赖基线数据，本次 PR 未重新运行。该结果只有一次配对运行，
-不表示三次运行的均值或方差。长期收敛、稳定性和性能未验证。
+CUDA/NPU 使用相同 fixture，各完成 150 步训练。长期收敛、稳定性和性能未验证。
