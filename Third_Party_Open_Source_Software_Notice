@@ -2,6 +2,12 @@
 
 本项目自有代码采用 Apache-2.0，见 LICENSE。
 
-`torchtitan_ascend/qwen3.py` 复用 TorchTitan 的 Qwen3 配方接口。TorchTitan 版权归 Meta Platforms, Inc. and affiliates，采用 BSD-3-Clause，完整条款见 LICENSE-BSD-3-Clause。
+`torchtitan_ascend/recipes/` 复用 TorchTitan 的模型及训练配方接口。TorchTitan 版权归 Meta Platforms, Inc. and affiliates，采用 BSD-3-Clause，完整条款见 LICENSE-BSD-3-Clause。
 
 `patches/` 包含 torch_npu 和 op-plugin 的源码修改，遵循各组件的 Apache-2.0 许可证。补丁保留原始作者信息；来源见 patches/README.md。
+
+`patches/torchtitan/` 包含 TorchTitan 的源码修改，遵循其 BSD-3-Clause 许可证。
+
+`torchtitan_ascend/modules/gdn.py` 的算子组合参考 flash-linear-attention-npu 的 `examples/flash_gated_delta_rule.py`，版权归 Tianjin University，采用 BSD-3-Clause，完整条款见 LICENSE-BSD-3-Clause。
+
+融合 GDN 后端依赖 flash-linear-attention-npu（https://github.com/flashserve/flash-linear-attention-npu）。该组件的许可证以其仓库 LICENSE、LICENSES 和 NOTICE 为准；本仓不包含其 AscendC 算子源码或二进制。

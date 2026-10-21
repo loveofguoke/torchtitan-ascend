@@ -1,0 +1,50 @@
+diff --git a/torch_npu/_init/patches/npu_patches.py b/torch_npu/_init/patches/npu_patches.py
+index ab0b36ca51..e1faf9cd5b 100644
+--- a/torch_npu/_init/patches/npu_patches.py
++++ b/torch_npu/_init/patches/npu_patches.py
+@@ -1,6 +1,25 @@
+ from torch_npu._init.patches.patch_manager import PatchManager
+ 
+ 
++@PatchManager.register_patch("npu")
++def apply_storage_factory_patch():
++    from functools import wraps
++
++    import torch
++    import torch_npu
++
++    original = torch._C._construct_storage_from_data_pointer
++
++    @wraps(original)
++    def construct_storage(data_ptr, device, size_bytes):
++        device = torch.device(device)
++        if device.type == "npu":
++            return torch_npu._C._construct_storage_from_data_pointer(data_ptr, device, size_bytes)
++        return original(data_ptr, device, size_bytes)
++
++    torch._C._construct_storage_from_data_pointer = construct_storage
++
++
+ @PatchManager.register_patch("npu")
+ def apply_npu_format_patch():
+     from torch_npu.npu._format import _apply_npu_format_patch
+diff --git a/torch_npu/csrc/core/NPUStorageImpl.cpp b/torch_npu/csrc/core/NPUStorageImpl.cpp
+index a6d426554f..08b5dd8394 100644
+--- a/torch_npu/csrc/core/NPUStorageImpl.cpp
++++ b/torch_npu/csrc/core/NPUStorageImpl.cpp
+@@ -31,10 +31,13 @@ c10::intrusive_ptr<c10::StorageImpl> make_npu_storage_impl(
+   if (data_ptr == nullptr) {
+     if (size == 0 && allocator != nullptr) {
+       data_ptr = allocator->allocate(size);
+-    } else if (size > 0) {
+-      TORCH_CHECK(allocator != nullptr, "When data_ptr is null and size > 0, allocator must be provided.");
++    } else if (size > 0 && allocator != nullptr) {
+       data_ptr = allocator->allocate(size);
+       TORCH_CHECK(data_ptr, "Get data_ptr failed", PTA_ERROR(ErrCode::PARAM));
++    } else if (size > 0) {
++      TORCH_CHECK(!resizable, "Unbacked npu storage must not be resizable", PTA_ERROR(ErrCode::PARAM));
++      TORCH_CHECK(data_ptr.device().is_privateuseone(),
++                  "Unbacked npu storage must carry an npu device", PTA_ERROR(ErrCode::PARAM));
+     }
+   }
+ 

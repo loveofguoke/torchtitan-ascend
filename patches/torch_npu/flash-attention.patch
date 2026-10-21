@@ -1,48 +1,8 @@
-From 6d8a8403b7832c65bf9b9c5b72392f2c5cdf799d Mon Sep 17 00:00:00 2001
-From: JavaZeroo <2487163254@qq.com>
-Date: Sun, 30 Aug 2026 01:44:30 +0800
-Subject: [PATCH] fix: implement aten::_flash_attention_forward/_backward on
- npu_fusion_attention
-
-torch.nn.attention.varlen.varlen_attn (and the SDPA flash path) lower to
-aten::_flash_attention_forward / _backward, which have no PrivateUse1
-kernel:
-
-  NotImplementedError: Could not run 'aten::_flash_attention_forward' ...
-
-Callers written against the public flash-attention contract -- e.g.
-torchtitan's VarlenAttention -- therefore cannot run on Ascend.
-
-Register PrivateUse1 implementations backed by npu_fusion_attention /
-npu_fusion_attention_grad: dense (B,S,N,D) and packed varlen (T,N,D)
-layouts, right-aligned causal (sparse_mode 3), left window (sparse_mode 4),
-GQA. The kernel's per-sequence head-major softmax statistics are folded
-into the aten logsumexp layout ((B,N,S) / (N,T)) and expanded back for the
-backward with softmax_sum == 1, which satisfies the kernel's
-P = exp(S - max) / sum. Dropout, alibi, paged KV and seqused_k are rejected
-explicitly.
-
-Validated on Ascend 910B2 / CANN 9.1.0 with torch 2.15.0.dev20260812 +
-torch_npu master: varlen_attn forward and grads match a fp32 reference per
-document (bf16 tolerance), and torchtitan's stock VarlenAttention model
-trains.
-
-Backend regression tests are maintained in the upstream PR. This local
-patch carries runtime changes only; PR1 uses the Qwen3 training smoke test.
-
-Upstream-PR: https://gitcode.com/Ascend/pytorch/merge_requests/45527
-Upstream-Issue: https://gitcode.com/Ascend/pytorch/issues/4439
----
- torch_npu/_init/patches/npu_patches.py       |   7 +
- torch_npu/utils/patch_flash_attention.py     | 207 +++++++++++++++++++
- 2 files changed, 214 insertions(+)
- create mode 100644 torch_npu/utils/patch_flash_attention.py
-
 diff --git a/torch_npu/_init/patches/npu_patches.py b/torch_npu/_init/patches/npu_patches.py
-index 578781424..aea3fdf08 100644
+index ab0b36ca51..c0b5ba46a7 100644
 --- a/torch_npu/_init/patches/npu_patches.py
 +++ b/torch_npu/_init/patches/npu_patches.py
-@@ -42,3 +42,10 @@ def apply_npu_internal_format_repr_patch():
+@@ -58,3 +58,10 @@ def apply_npu_internal_format_repr_patch():
          return _orig_repr(self, tensor_contents=tensor_contents)
  
      torch.Tensor.__repr__ = _npu_internal_format_repr
@@ -55,7 +15,7 @@ index 578781424..aea3fdf08 100644
 +    _register_npu_flash_attention()
 diff --git a/torch_npu/utils/patch_flash_attention.py b/torch_npu/utils/patch_flash_attention.py
 new file mode 100644
-index 000000000..781f1ee60
+index 0000000000..781f1ee602
 --- /dev/null
 +++ b/torch_npu/utils/patch_flash_attention.py
 @@ -0,0 +1,207 @@
@@ -266,6 +226,3 @@ index 000000000..781f1ee60
 +    lib.impl("_flash_attention_backward", _flash_attention_backward_npu, "PrivateUse1")
 +    torch.ops.aten._npu_flash_attention_registered = True
 +    _register_npu_flash_attention._lib = lib  # keep the Library object alive
--- 
-2.34.1
-

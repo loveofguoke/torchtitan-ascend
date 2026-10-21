@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "torchtitan-ascend"
 version = "0.1.0.dev0"
-description = "Ascend core integration and minimal Qwen3 recipe for TorchTitan"
+description = "Ascend NPU training extensions for TorchTitan"
 requires-python = ">=3.12"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "LICENSE-BSD-3-Clause", "Third_Party_Open_Source_Software_Notice"]
-dependencies = ["torchtitan==0.2.2"]
+dependencies = ["torchtitan==0.2.2", "attn-gym==0.0.16"]
 
 [project.optional-dependencies]
 test = ["pytest"]
@@ -62,3 +62,8 @@ tests = ["B608", "B602", "B605", "B607", "B307", "B324", "B301", "B306", "B321",
 [tool.codespell]
 skip = "*.patch,*.toml,*.py,*.cpp,*.hpp,*.c,*.h"
 ignore-words-list = "CANN,cann,NNAL,nnal,ASCEND,ascend,EnQue,CopyIn,ArchType,AND,ND,tbe,copyin,alog,te"
+
+[tool.pytest.ini_options]
+markers = [
+    "npu: tests requiring Ascend NPUs",
+]
