@@ -13,11 +13,19 @@ from torchtitan_ascend import setup
 from torchtitan_ascend.changes import has_override
 from torchtitan_ascend.modules.glm5 import npu_safe_trunc_normal_
 from torchtitan_ascend.ops.rope import npu_complex_rope
-from torchtitan_ascend.recipes.glm5 import glm5_debugmodel_npu
+from torchtitan_ascend.recipes.glm5 import (
+    glm5_2_debugmodel_npu,
+    glm5_3_debugmodel_npu,
+    glm5_debugmodel_npu,
+)
 
 
-def test_glm5_debugmodel_npu_config():
-    config = glm5_debugmodel_npu()
+@pytest.mark.parametrize(
+    "recipe",
+    [glm5_2_debugmodel_npu, glm5_3_debugmodel_npu],
+)
+def test_glm5_debugmodel_npu_config(recipe):
+    config = recipe()
 
     assert config.model.local_compile_regions == []
     assert config.activation_remat is None

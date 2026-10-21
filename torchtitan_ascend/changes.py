@@ -6,6 +6,7 @@ from collections.abc import Callable
 from torchtitan.config.override import OverrideImport
 from torchtitan.trainer import Trainer
 
+
 def override_target(override_fn: Callable) -> str:
     """Return the factory's ``module.function`` activation target."""
     if (
