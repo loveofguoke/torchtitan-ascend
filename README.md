@@ -52,3 +52,15 @@ python -m pytest --noconftest "$ASCEND_REPO/tests/test_qwen3.py" -q
 仅保留一个核心功能测试，检查完成 10 次训练更新、loss 和梯度范数有限以及模型参数实际变化。所需后端修复及移除对照见 [补丁说明](patches/README.md)。
 
 设计讨论见 [RFC #5](https://gitcode.com/Ascend/torchtitan-ascend/issues/5)。项目代码采用 [Apache-2.0](LICENSE)；第三方归属见 [Third Party Notice](Third_Party_Open_Source_Software_Notice)。
+
+## 静态检查
+
+安装 `pre-commit>=4,<5`，并准备当前平台的 `lychee`（放在 `PATH`）和
+`gitleaks`（放在仓库根目录并赋予执行权限）。macOS 可用 `brew install lychee gitleaks`，
+再执行 `ln -s "$(command -v gitleaks)" ./gitleaks`。CI 同样需要预先提供这两个工具。
+
+运行 `pre-commit run --all-files` 检查全仓，运行 `pre-commit install` 安装提交前检查。
+Python 检查工具由 pre-commit 在隔离环境中安装，无需安装训练环境。
+ufmt 统一格式化；Pyrefly 检查本仓类型，外部 Torch/NPU 运行时依赖按未知类型处理。
+链接检查沿用上游策略，仅将 HTTP 404 判为失败，网络请求错误仍会报错。
+Gitleaks hook 检查暂存区；全目录扫描使用 `./gitleaks dir --redact --config=pre-commit/.gitleaks.toml .`。

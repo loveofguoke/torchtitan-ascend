@@ -14,6 +14,51 @@ dependencies = ["torchtitan==0.2.2"]
 
 [project.optional-dependencies]
 test = ["pytest"]
+dev = ["pre-commit>=4.0.0,<5"]
 
 [tool.setuptools.packages.find]
 include = ["torchtitan_ascend*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["build", "dist", "outputs"]
+
+[tool.ruff.lint]
+extend-select = ["D209", "SIM115"]
+
+[tool.black]
+line-length = 120
+target-version = ["py312"]
+
+[tool.usort]
+first_party_detection = false
+
+[tool.pydoclint]
+style = "google"
+
+[tool.pyrefly]
+python-version = "3.12"
+project-includes = ["torchtitan_ascend/**/*.py", "tests/**/*.py", "pre-commit/**/*.py"]
+# These external runtime packages are unavailable in the isolated lint env.
+# Internal Ascend modules remain fully checked.
+replace-imports-with-any = ["torch", "torch.*", "torchtitan", "torchtitan.*", "torchtitan_recipes.*", "pytest"]
+
+[tool.pylint.reports]
+reports = false
+score = false
+
+[tool.pylint.messages_control]
+# Match the reference repositories' high-value checks without style warnings.
+# Optional Torch/NPU packages need not be installed in the lint environment.
+disable = ["all"]
+enable = ["E0100", "E0601", "E0602", "E0603", "E0611", "E0632", "E1101", "E1120", "W0632", "W1514"]
+
+[tool.bandit]
+exclude_dirs = ["tests", "test", "venv", ".venv", "build", "dist", "__pycache__"]
+# Same selected security checks as MindSpeed/TENPU/MA.
+tests = ["B608", "B602", "B605", "B607", "B307", "B324", "B301", "B306", "B321", "B311", "B105", "B106", "B107", "B108", "B110"]
+
+[tool.codespell]
+skip = "*.patch,*.toml,*.py,*.cpp,*.hpp,*.c,*.h"
+ignore-words-list = "CANN,cann,NNAL,nnal,ASCEND,ascend,EnQue,CopyIn,ArchType,AND,ND,tbe,copyin,alog,te"

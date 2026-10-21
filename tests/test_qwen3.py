@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Run from the pinned TorchTitan checkout with one visible NPU."""
 
 import math
@@ -41,9 +42,7 @@ def test_native_qwen3_updates_parameters(tmp_path, monkeypatch):
 
         def capture(step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs):
             metrics.append((global_avg_loss, grad_norm))
-            return original_log(
-                step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs
-            )
+            return original_log(step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs)
 
         monkeypatch.setattr(trainer.metrics_processor, "log", capture)
 

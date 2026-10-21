@@ -1,0 +1,112 @@
+minimum_pre_commit_version: "4.0.0"
+default_stages: [pre-commit]
+exclude: ^(build/|dist/|outputs/|.*\.egg-info/)|\.(html|csv|svg)$
+
+repos:
+  - repo: https://gitcode.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        # Preserve significant unified-diff whitespace and mail-patch trailers.
+        exclude: '\.patch$'
+      - id: end-of-file-fixer
+        exclude: '\.patch$'
+      - id: check-ast
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: [--branch=main]
+
+  - repo: https://gitcode.com/gh_mirrors/ru/ruff-pre-commit
+    rev: v0.14.14
+    hooks:
+      - id: ruff-check
+        args: [--config, pyproject.toml, --output-format, github, --fix]
+      # ufmt below owns formatting, matching TorchTitan upstream.
+
+  # TorchTitan's Flake8 plugin set complements the existing Ruff checks.
+  - repo: https://gitcode.com/gh_mirrors/fl/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        args: [--config=.flake8]
+        additional_dependencies:
+          - flake8-bugbear==24.12.12
+          - pep8-naming==0.14.1
+          - torchfix
+          - flake8-pep585
+          - flake8-new-union-types==0.4.1
+
+  - repo: https://gitcode.com/gh_mirrors/co/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        args: [--toml, pyproject.toml]
+        additional_dependencies: [tomli]
+
+  - repo: https://gitcode.com/gh_mirrors/pyl/pylint
+    rev: v4.0.5
+    hooks:
+      - id: pylint
+        args: [--rcfile=pyproject.toml]
+
+  - repo: https://gitcode.com/gh_mirrors/ba/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: [--config=pyproject.toml, --quiet]
+        additional_dependencies: ["bandit[toml]"]
+
+  - repo: https://gitcode.com/gh_mirrors/ty/typos
+    rev: v1.32.0
+    hooks:
+      - id: typos
+        args: [--force-exclude, --config, pre-commit/typos.toml]
+
+  # CI must provision a platform-appropriate executable at ./gitleaks first.
+  - repo: local
+    hooks:
+      - id: insert-license
+        name: insert-license (Apache-2.0 SPDX header)
+        entry: python pre-commit/insert_license.py
+        language: python
+        types: [python]
+      - id: ufmt
+        name: ufmt
+        entry: ufmt format
+        language: python
+        types: [python]
+        additional_dependencies: [ufmt==2.3.0, black==24.10.0, usort==1.0.8]
+      - id: pydoclint
+        name: pydoclint
+        entry: pydoclint
+        args: [--config=pyproject.toml]
+        language: python
+        types: [python]
+        additional_dependencies: [pydoclint==0.6.5]
+      - id: pyrefly-check
+        name: Pyrefly (type checking)
+        entry: pyrefly check
+        args: [--summarize-errors]
+        language: python
+        pass_filenames: false
+        types: [python]
+        additional_dependencies: [pyrefly==0.45.1]
+      - id: lychee-link-checker
+        name: lychee-link-checker
+        # Provision lychee on PATH in CI; missing tools fail rather than skip.
+        entry: lychee
+        language: system
+        types_or: [markdown, python]
+        args: [--no-progress, --root-dir=., "--accept=100..399,400,401,402,403,405..999", --max-retries=2, --timeout=20]
+      - id: gitleaks-offline-scan
+        name: Gitleaks Secret Scan (Local Binary)
+        entry: ./gitleaks
+        language: system
+        pass_filenames: false
+        args: [protect, --staged, --redact, --config=pre-commit/.gitleaks.toml]

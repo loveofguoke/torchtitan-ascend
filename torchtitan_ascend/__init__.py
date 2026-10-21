@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Ascend NPU extensions for TorchTitan.
 
 Call ``setup()`` before entering TorchTitan to apply registered runtime fixes.

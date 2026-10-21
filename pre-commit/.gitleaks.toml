@@ -1,0 +1,4 @@
+title = "TorchTitan Ascend secret scan"
+
+[extend]
+useDefault = true

@@ -1,0 +1,6 @@
+[flake8]
+# TorchTitan plugin families; ufmt owns automatic formatting.
+select = B,C,E,F,N,NU,P,T4,W,B9,TOR0,TOR1,TOR2
+max-line-length = 120
+extend-ignore = E203,E501,W503
+exclude = .git,__pycache__,.venv,venv,build,dist,*.egg-info

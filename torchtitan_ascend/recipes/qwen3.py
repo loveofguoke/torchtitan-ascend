@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 from torchtitan.models.qwen3 import build_model_config
 from torchtitan_recipes.tests.models.qwen3 import qwen3_debugmodel
 

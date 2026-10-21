@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Apply registered runtime fixes before entering TorchTitan."""
 
 from __future__ import annotations
@@ -10,9 +11,7 @@ def setup(*, apply_fixes: bool = True) -> None:
     global _configured
     if _configured is not None:
         if _configured != apply_fixes:
-            raise RuntimeError(
-                "setup() was already called with a different apply_fixes value"
-            )
+            raise RuntimeError("setup() was already called with a different apply_fixes value")
         return
 
     if apply_fixes:
