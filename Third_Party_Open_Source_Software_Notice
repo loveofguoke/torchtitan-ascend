@@ -11,3 +11,7 @@
 `torchtitan_ascend/modules/gdn.py` 的算子组合参考 flash-linear-attention-npu 的 `examples/flash_gated_delta_rule.py`，版权归 Tianjin University，采用 BSD-3-Clause，完整条款见 LICENSE-BSD-3-Clause。
 
 融合 GDN 后端依赖 flash-linear-attention-npu（https://github.com/flashserve/flash-linear-attention-npu）。该组件的许可证以其仓库 LICENSE、LICENSES 和 NOTICE 为准；本仓不包含其 AscendC 算子源码或二进制。
+
+`torchtitan_ascend/modules/kda.py` 的算子组合参考 flash-linear-attention-npu 的 `examples/chunk_kda.py`，版权归 Tianjin University，采用 BSD-3-Clause，完整条款见 LICENSE-BSD-3-Clause。
+
+融合 KDA 后端依赖 flash-linear-attention-npu（https://github.com/flashserve/flash-linear-attention-npu）。该组件的许可证以其仓库 LICENSE、LICENSES 和 NOTICE 为准；本仓不包含其 AscendC 算子源码或二进制。

@@ -1,24 +1,19 @@
-# Qwen3 最小后端修复
+# 依赖补丁
 
-基线为 torch_npu `95c7e465426ab894ffdb43ae878ee111e090fb17` 及其 op-plugin 子模块 `0abe20992cf389c4e9615f96f7198205a155c769`。
+上游状态、验证范围与移除条件见 [补丁跟踪 Issue #4](https://gitcode.com/Ascend/torchtitan-ascend/issues/4)。
 
-| 补丁 | 原生 Qwen3 varlen 路径的依赖 | 上游来源 |
-|---|---|---|
-| `torch_npu/NPU-1-flash-attention-privateuse1.patch` | 为原生 `varlen_attn` 调用的 FlashAttention 前向、反向算子注册 NPU 内核。 | [torch_npu !45527](https://gitcode.com/Ascend/pytorch/merge_requests/45527) |
-| `op-plugin/NPU-6-zero-uint64.patch` | 原生 `varlen_attn` 会创建 uint64 RNG 占位张量，需要 NPU `zero_` 支持。 | [op-plugin !5801](https://gitcode.com/Ascend/op-plugin/merge_requests/5801) |
-
-配方使用真实单卡进程组、CosSinRoPE、eager 计算，不启用 activation checkpoint。fake 进程组、复数 RoPE、FlexAttention/Inductor、流水线 splitting、remat storage 及其他模型的修复不属于这条训练链。
-
-本批补丁仅保留运行时修复，后端单元测试由对应上游 PR 维护；本仓只保留一个 Qwen3 训练验证，命令见项目 README。上游发布包含修复的兼容版本后，应重新验证并移除对应补丁。
-
-## 移除对照
-
-在同一上游版本、单张 910B2 和本仓配方下逐项验证：
-
-| 后端内容 | 结果 |
+| 组件 | 适用版本 |
 |---|---|
-| 仅 NPU-1，不含 NPU-6 | 第一步前向创建 RNG 张量时，`zero_` 报 `DT_UINT64` 不支持，错误码 `161002`。 |
-| 保留 NPU-6，移除 NPU-1 注册 | `aten::_flash_attention_forward` 缺少 NPU 内核，CPU fallback 也不能执行该算子，训练失败。 |
-| 仅 NPU-1 + NPU-6 | 完成 10 步原生训练，loss `7.66793 → 5.30473`。 |
+| TorchTitan | `edde21fb648d446fecb5b78ef42d8c432274b935` |
+| torch_npu | `2c8682df9271e545e7f50f8c45e2395563a05483` |
+| op-plugin | `5ac12689b6a61ec9db3fc260eab17bbc5447567e` |
+| Triton-Ascend | `3.6.0` |
 
-对照使用从固定源码重新构建的 torch_npu，而非全量开发补丁环境。NPU-6 对照由无该补丁的完整构建开始，再增量构建清零内核并更新 wheel；NPU-1 对照仅恢复后端注册文件至上游版本。验证环境未安装 Triton-Ascend 或 fla-npu，上游 TorchTitan 源码未修改。
+| 补丁 | 用途 | 上游关联 |
+|---|---|---|
+| [FlashAttention](torch_npu/flash-attention.patch) | 为原生变长（varlen）注意力调用的 FlashAttention 前后向算子注册 NPU 内核。 | [torch_npu !45527](https://gitcode.com/Ascend/pytorch/merge_requests/45527)；[Issue #4439](https://gitcode.com/Ascend/pytorch/issues/4439)。 |
+| [Storage](torch_npu/storage.patch) | 支持 RegionAC 保存区域使用的无 backing allocation placeholder storage；修复 NPU 工厂，通过 `PatchManager` 注册 Python 构造入口分流，并在正常初始化流程中只应用一次。 | [torch_npu !47944](https://gitcode.com/Ascend/pytorch/merge_requests/47944)；通用构造入口分流尚未提交上游。 |
+| [Zero-uint64](op-plugin/NPU-6-zero-uint64.patch) | 支持变长注意力创建 uint64 RNG 占位张量所需的 `zero_`。 | [op-plugin !5801](https://gitcode.com/Ascend/op-plugin/merge_requests/5801)；[Issue #467](https://gitcode.com/Ascend/op-plugin/issues/467)。 |
+| [TA-3](triton-ascend/TA-3-cxx20-launcher.patch) | 使用 C++20 编译 Triton launcher，兼容当前 PyTorch 头文件。 | 复用社区 [Triton-Ascend #1919](https://github.com/triton-lang/triton-ascend/pull/1919)；[Issue #1411](https://github.com/triton-lang/triton-ascend/issues/1411)。 |
+
+应用与构建步骤见[安装指南](../INSTALL.md)。

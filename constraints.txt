@@ -1,6 +1,6 @@
 # Keep the PyTorch / torch_npu ABI baseline when resolving runtime dependencies.
-torch==2.16.0.dev20261008+cpu
-torchvision==0.30.0.dev20261008+cpu
+torch==2.15.0.dev20261005+cpu
+torchvision==0.30.0.dev20261005+cpu
 # PyArrow 26 requires NumPy 2 at import time; the backend build uses NumPy 1.26.
 numpy==1.26.4
 pyarrow==21.0.0
