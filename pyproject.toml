@@ -40,6 +40,9 @@ style = "google"
 [tool.pyrefly]
 python-version = "3.12"
 project-includes = ["torchtitan_ascend/**/*.py", "tests/**/*.py", "pre-commit/**/*.py"]
+# The vendored GLM implementation is type-checked in its TorchTitan source
+# repository, where the inherited TorchTitan config types are available.
+project-excludes = ["torchtitan_ascend/models/glm5/**/*.py"]
 # These external runtime packages are unavailable in the isolated lint env.
 # Internal Ascend modules remain fully checked.
 replace-imports-with-any = ["torch", "torch.*", "torchtitan", "torchtitan.*", "torchtitan_recipes.*", "pytest"]

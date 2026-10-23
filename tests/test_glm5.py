@@ -14,7 +14,9 @@ from torchtitan_ascend.changes import has_override
 from torchtitan_ascend.modules.glm5 import npu_safe_trunc_normal_
 from torchtitan_ascend.ops.rope import npu_complex_rope
 from torchtitan_ascend.recipes.glm5 import (
+    glm5_2_debugmodel_mtp_npu,
     glm5_2_debugmodel_npu,
+    glm5_3_debugmodel_mtp_npu,
     glm5_3_debugmodel_npu,
     glm5_debugmodel_npu,
 )
@@ -34,13 +36,22 @@ def test_glm5_debugmodel_npu_config(recipe):
     assert config.training.steps == 10
     assert has_override(config, npu_complex_rope)
     assert any(
-        isinstance(initializer, partial)
-        and initializer.func is npu_safe_trunc_normal_
-        for _, module_config, _, _ in config.model.traverse(
-            Module.Config, recurse=True
-        )
+        isinstance(initializer, partial) and initializer.func is npu_safe_trunc_normal_
+        for _, module_config, _, _ in config.model.traverse(Module.Config, recurse=True)
         for initializer in (module_config.param_init or {}).values()
     )
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [glm5_2_debugmodel_mtp_npu, glm5_3_debugmodel_mtp_npu],
+)
+def test_glm5_mtp_npu_config(recipe):
+    config = recipe(mtp_scale=0.125)
+
+    assert len(config.model.mtp_layers) == 1
+    assert config.dataloader.num_mtp_layers == 1
+    assert config.loss.loss_fn.mtp_scale == 0.125
 
 
 def test_glm5_single_card(tmp_path, monkeypatch):
@@ -74,9 +85,7 @@ def test_glm5_single_card(tmp_path, monkeypatch):
 
         def capture(step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs):
             metrics.append((global_avg_loss, grad_norm))
-            return original_log(
-                step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs
-            )
+            return original_log(step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs)
 
         monkeypatch.setattr(trainer.metrics_processor, "log", capture)
         trainer.train()

@@ -1,8 +1,7 @@
 # TorchTitan Ascend
 
-在 Ascend NPU 上运行上游 TorchTitan 的 Qwen3 最小训练配方。
-
-本次重构移除旧的 `torchtitanturbo` 实现。模型、数据加载、Trainer 和优化器均使用上游代码；本仓仅选择原生 varlen attention、关闭局部编译与 activation checkpoint，并缩小冒烟配置。
+为 TorchTitan 提供 Ascend NPU 训练扩展。仓库复用 TorchTitan 的 Trainer、配置、
+数据、优化器和并行化接口，并维护模型 recipe、NPU override 及必要的临时兼容补丁。
 
 ## 核心结构
 
@@ -11,12 +10,12 @@ torchtitan_ascend/
 ├── __init__.py        # 惰性公开 setup；导入包不加载 torch 或修改上游
 ├── _setup.py          # 按选项应用已注册 fixes，相同选项只执行一次
 ├── train.py           # setup 后委托给 torchtitan.train.main
+├── models/
+│   └── glm5/          # GLM-5.2/5.3、DSA、MTP、并行化与 checkpoint 映射
 ├── fixes/
 │   ├── __init__.py
 │   └── registry.py    # 延迟注册和应用 wrap / replace / polyfill
-└── recipes/
-    ├── __init__.py
-    └── qwen3.py       # 唯一配方：上游 Qwen3 单卡最小训练
+└── recipes/           # Qwen3、GLM-5 等模型的 NPU 配方
 ```
 
 上游训练入口导入 `torch` 时会自动加载已安装的 `torch_npu`；本仓不提前导入两者。
@@ -38,7 +37,7 @@ python -m torch.distributed.run \
   --output-dir ./outputs/qwen3-npu
 ```
 
-配方使用上游 `debugmodel`（约 3200 万参数）、BF16、序列长度 256、每步 512 tokens，运行 10 步。它验证单卡训练链，不代表 Qwen3-8B/14B、多卡、收敛、性能或 checkpoint 能力已经验证。默认 FlexAttention 和局部编译不在本批范围内。
+Qwen3 配方使用上游 `debugmodel`（约 3200 万参数）、BF16、序列长度 256、每步 512 tokens，运行 10 步。GLM-5.2/5.3 的配置、启动方式和验证范围见 [GLM-5 文档](docs/models/glm5.md)。
 
 ## 验证
 

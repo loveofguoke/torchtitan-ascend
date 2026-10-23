@@ -3,13 +3,10 @@ from functools import partial
 import torch
 
 from torchtitan.config.parallelism import ParallelismConfig
-from torchtitan.models.glm5 import build_model_config
 from torchtitan.models.base import Module
-from torchtitan_ascend.modules.glm5 import (
-    npu_safe_trunc_normal_,
-    replace_trunc_normal_initializers,
-)
 from torchtitan_ascend.fixes.vocab_parallel_loss import _local_vocab_labels
+from torchtitan_ascend.models.glm5 import build_model_config
+from torchtitan_ascend.modules.glm5 import npu_safe_trunc_normal_, replace_trunc_normal_initializers
 
 
 def test_replace_glm5_trunc_normal_initializers():
@@ -52,6 +49,4 @@ def test_local_vocab_labels_avoids_out_of_range_indices():
     )
 
     torch.testing.assert_close(local_labels, torch.tensor([0, 0, 0, 0, 3, 0]))
-    torch.testing.assert_close(
-        out_of_range, torch.tensor([True, True, True, False, False, True])
-    )
+    torch.testing.assert_close(out_of_range, torch.tensor([True, True, True, False, False, True]))

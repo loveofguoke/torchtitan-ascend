@@ -22,3 +22,14 @@
 | 仅 NPU-1 + NPU-6 | 完成 10 步原生训练，loss `7.66793 → 5.30473`。 |
 
 对照使用从固定源码重新构建的 torch_npu，而非全量开发补丁环境。NPU-6 对照由无该补丁的完整构建开始，再增量构建清零内核并更新 wheel；NPU-1 对照仅恢复后端注册文件至上游版本。验证环境未安装 Triton-Ascend 或 fla-npu，上游 TorchTitan 源码未修改。
+
+## GLM-5 临时 TorchTitan 接口补丁
+
+`torchtitan/TT-22-glm5-tuple-output.patch` 基于 TorchTitan `0.2.2`，允许 declarative
+sharding 模块返回主张量与辅助 tuple 输出。GLM-5 DSA 使用辅助输出在层间传递稀疏索引；
+主张量仍按 TorchTitan 的公开 sharding 配置重分布，辅助值保持原样。补丁同时在输出 collective
+前标记 remat 依赖，避免 backward 丢失未重算的 producer。
+
+对应上游实现和测试位于
+[pytorch/torchtitan#5578](https://github.com/pytorch/torchtitan/pull/5578)。该改动合入并发布后，
+应删除本补丁并直接依赖包含该接口的 TorchTitan 版本。
