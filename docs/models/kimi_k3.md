@@ -54,9 +54,14 @@ ASCEND_RT_VISIBLE_DEVICES=0,1 \
     python -m pytest "$ASCEND_REPO/tests/integration_tests/test_kimi_k3.py" -v
 ```
 
-对比已有精度基线，覆盖开启确定性计算的双卡 FSDP2 的 20 步训练，逐步相对误差须小于 `0.2%`；要求至少两张可见 NPU，不足时自动跳过。
+对比已有精度基线，覆盖开启确定性计算的双卡 FSDP2 的 20 步训练；要求至少两张可见 NPU，不足时自动跳过。精度要求如下：
 
-运行日志保存在仓库根目录 `outputs/kimi_k3/`，固定基线为 `tests/assets/losses/kimi_k3/kimi_k3_fsdp2.txt`。
+1. 第 1 步的 `abs(now_loss - base_loss) / base_loss` 小于 `0.5%`。
+2. 全部 20 步中，每一步的 `abs(now_loss - base_loss) / base_loss` 均小于 `1%`。
+3. 全部 20 步中，每一步的 `(now_norm - base_norm) / base_norm` 均在 `[-5%, +5%]` 区间内。
+4. 启动两次独立训练，每一步 loss 和 global grad norm 使用 `torch.isclose(rtol=1e-6, atol=0)` 比较（相对误差不超过 `0.0001%`）。
+
+运行日志保存在仓库根目录 `outputs/kimi_k3/`。基线为 `tests/assets/losses/kimi_k3/kimi_k3_fsdp2.txt`。
 
 ## 自定义数据
 
