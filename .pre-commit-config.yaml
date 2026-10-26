@@ -7,10 +7,8 @@ repos:
     rev: v4.6.0
     hooks:
       - id: trailing-whitespace
-        # Preserve significant unified-diff whitespace and mail-patch trailers.
-        exclude: '\.patch$'
+        exclude: ^fixes/
       - id: end-of-file-fixer
-        exclude: '\.patch$'
       - id: check-ast
       - id: check-yaml
         args: [--allow-multiple-documents]

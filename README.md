@@ -30,37 +30,10 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train MODULE=tor
 
 ## 开发
 
-- [架构设计](https://gitcode.com/Ascend/torchtitan-ascend/issues/5)
-- [依赖补丁](patches/README.md)
+[安装补丁](fixes/README.md) · [运行时修复机制](torchtitan_ascend/patches/README.md) · [开发规范](AGENTS.md)
 
-完成[安装](INSTALL.md)后，在同一 Python 环境和 shell 中安装测试依赖并运行 CPU 测试：
-
-```bash
-uv pip install -e "$ASCEND_REPO[test]"
-cd "$ASCEND_REPO"
-python -m pytest tests -m 'not npu' -q
-```
-
-NPU 测试需先完成 [Qwen3.5 安装与数据准备](docs/models/qwen3_5.md)，并按其[启动说明](docs/models/qwen3_5.md#启动)配置算子包路径：
-
-```bash
-cd "$TORCHTITAN_SRC"
-ASCEND_RT_VISIBLE_DEVICES=0 OMP_NUM_THREADS=4 \
-    python -m pytest "$ASCEND_REPO/tests" -m npu -q
-```
+NPU 验证分别见 [Qwen3.5 模块与训练测试](docs/models/qwen3_5.md#验证)和 [Kimi K3 双卡集成测试](docs/models/kimi_k3.md#集成测试)。
 
 ## 许可证
 
 本项目采用 [Apache-2.0](LICENSE) 许可证。第三方组件归属见 [Third_Party_Open_Source_Software_Notice](Third_Party_Open_Source_Software_Notice)。
-
-## 静态检查
-
-安装 `pre-commit>=4,<5`，并准备当前平台的 `lychee`（放在 `PATH`）和
-`gitleaks`（放在仓库根目录并赋予执行权限）。macOS 可用 `brew install lychee gitleaks`，
-再执行 `ln -s "$(command -v gitleaks)" ./gitleaks`。CI 同样需要预先提供这两个工具。
-
-运行 `pre-commit run --all-files` 检查全仓，运行 `pre-commit install` 安装提交前检查。
-Python 检查工具由 pre-commit 在隔离环境中安装，无需安装训练环境。
-ufmt 统一格式化；Pyrefly 检查本仓类型，外部 Torch/NPU 运行时依赖按未知类型处理。
-链接检查沿用上游策略，仅将 HTTP 404 判为失败，网络请求错误仍会报错。
-Gitleaks hook 检查暂存区；全目录扫描使用 `./gitleaks dir --redact --config=pre-commit/.gitleaks.toml .`。

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Process-local hardware identity and requirements for Ascend implementations."""
 
 from functools import cache

@@ -2,9 +2,9 @@
 
 ## 安装
 
-先完成[基础安装](../../INSTALL.md)，再在同一 Python 环境和 shell 中安装 [flash-linear-attention-npu](https://github.com/flashserve/flash-linear-attention-npu)。构建需要 GNU Make 和 gawk。
+先完成[基础安装](../../INSTALL.md)。本模型使用 [flash-linear-attention-npu](https://github.com/flashserve/flash-linear-attention-npu) 的 AscendC 算子，要求 Ascend 950、GNU Make 和 gawk。
 
-配方通过 override 接入 fla-npu AscendC 前后向算子，仅支持 Ascend 950。
+### 准备源码
 
 ```bash
 export FLA_NPU_SRC=/absolute/path/to/flash-linear-attention-npu
@@ -12,7 +12,13 @@ export FLA_NPU_SRC=/absolute/path/to/flash-linear-attention-npu
 git clone https://github.com/flashserve/flash-linear-attention-npu.git "$FLA_NPU_SRC"
 cd "$FLA_NPU_SRC"
 git checkout 54ae09b1243cd851d986c2624a57bbb5ee63dc27
-uv pip install -r requirements.txt pip setuptools wheel packaging psutil
+uv pip install -r requirements.txt pip setuptools wheel packaging
+```
+
+### 构建算子
+
+```bash
+cd "$FLA_NPU_SRC"
 FLA_NPU_SOC=ascend950 \
 FLA_NPU_OPS=causal_conv1d,causal_conv1d_bwd,chunk_gated_delta_rule_fwd,chunk_gated_delta_rule_bwd \
     python scripts/build_wheel.py --no-progress
@@ -46,7 +52,7 @@ hf download allenai/c4 en/c4-train.00000-of-01024.json.gz \
 
 ## 启动
 
-在当前 Python 环境中配置算子包路径；新建 shell 时先按[准备环境](../../INSTALL.md#准备环境)设置环境。
+按[安装指南](../../INSTALL.md#验证安装)加载训练环境，并配置算子包路径：
 
 ```bash
 FLA_NPU_OPP=$(python - <<'PY'
@@ -69,6 +75,19 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 ```
 
 使用 0.8B 模型时，完成上述数据准备并设置 `CONFIG=qwen35_0_8b_npu`。
+
+## 验证
+
+完成安装、数据准备和算子路径配置后，使用一张 NPU 运行模块与训练测试：
+
+```bash
+uv pip install -e "$ASCEND_REPO[test]"
+cd "$TORCHTITAN_SRC"
+ASCEND_RT_VISIBLE_DEVICES=0 OMP_NUM_THREADS=4 python -m pytest "$ASCEND_REPO/tests" \
+    -m npu --ignore="$ASCEND_REPO/tests/integration_tests" -v
+```
+
+训练测试覆盖 Qwen3 debug、Qwen3.5 debug 和 0.8B，各运行 10 步并检查参数更新。缺少 0.8B tokenizer 或数据文件时，该项测试会跳过。
 
 ## 自定义数据
 

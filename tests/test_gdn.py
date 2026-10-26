@@ -1,10 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
 """Compare fla-npu convolution with PyTorch using identical cotangents."""
 
 import pytest
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as functional
 
-from torchtitan_ascend.modules.gdn import FlaGDNKernel, FlaInnerGDN
+from torchtitan_ascend.models.common.linear_attention import causal_conv1d
 
 
 @pytest.fixture
@@ -14,7 +15,7 @@ def npu():
     return "npu"
 
 
-def _reference_convolution(x, weight, *, cu_seqlens, routing):
+def _reference_convolution(x, weight, *, cu_seqlens):
     offsets = cu_seqlens.tolist() if cu_seqlens is not None else [0, x.shape[0]]
     dtype = x.dtype
     # Accumulate shared-weight gradients across documents in FP32.
@@ -22,8 +23,8 @@ def _reference_convolution(x, weight, *, cu_seqlens, routing):
     outputs = []
     for begin, end in zip(offsets[:-1], offsets[1:], strict=True):
         segment = x[begin:end].T.unsqueeze(0)
-        output = F.conv1d(F.pad(segment, (weight.shape[-1] - 1, 0)), weight, groups=x.shape[-1])
-        outputs.append(F.silu(output.to(dtype).squeeze(0).T))
+        output = functional.conv1d(functional.pad(segment, (weight.shape[-1] - 1, 0)), weight, groups=x.shape[-1])
+        outputs.append(functional.silu(output.to(dtype).squeeze(0).T))
     return torch.cat(outputs)
 
 
@@ -37,15 +38,14 @@ def test_fla_convolution_matches_reference(offsets, npu):
         torch.randn(256, 1, 4, generator=gen).bfloat16(),
     ]
     grad_output = torch.randn(9, 256, generator=gen).bfloat16()
-    kernel = FlaInnerGDN.Config(conv_kernel_size=4, kernel=FlaGDNKernel.Config()).build()
     expected, actual = [], []
     for module, device, results in [
         (_reference_convolution, "cpu", expected),
-        (kernel.short_convolution, npu, actual),
+        (causal_conv1d, npu, actual),
     ]:
         x, weight = [t.to(device).clone().requires_grad_() for t in inputs]
         cu = torch.tensor(offsets, dtype=torch.int32, device=device) if offsets else None
-        output = module(x, weight, cu_seqlens=cu, routing=None)
+        output = module(x, weight, cu_seqlens=cu)
         output.backward(grad_output.to(device))
         results.extend([output.detach().cpu(), x.grad.cpu(), weight.grad.cpu()])
     for got, want in zip(actual, expected, strict=True):

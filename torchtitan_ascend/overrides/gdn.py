@@ -8,11 +8,12 @@
 from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as functional
 from torchtitan.config import derive, override
-from torchtitan.models.common.attention.gdn import GDNKernel, InnerGDN
+from torchtitan.models.qwen3_5.gdn import GatedDeltaKernel, InnerGatedDeltaNet
 
 from torchtitan_ascend.device import require_device
+from torchtitan_ascend.models.common.linear_attention import causal_conv1d
 
 
 def _chunk_indices(offsets, chunk_size):
@@ -40,8 +41,8 @@ class _ChunkGDN(torch.autograd.Function):
             use_qk_l2norm_in_kernel=True,
         )
         ctx.scale = q.shape[-1] ** -0.5
-        out, _, cumulative_g, inverse, _, _, q_hat, k_hat, q_rstd, k_rstd = (
-            ascendc.chunk_gated_delta_rule_fwd(q, k, v, g, beta, scale=ctx.scale, **ctx.options)
+        out, _, cumulative_g, inverse, _, _, q_hat, k_hat, q_rstd, k_rstd = ascendc.chunk_gated_delta_rule_fwd(
+            q, k, v, g, beta, scale=ctx.scale, **ctx.options
         )
         ctx.save_for_backward(q_hat, k_hat, v, cumulative_g, beta, inverse, q_rstd, k_rstd)
         return out
@@ -67,42 +68,9 @@ class _ChunkGDN(torch.autograd.Function):
         return dq, dk, dv, dg, dbeta, None
 
 
-class _CausalConv1d(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, weight, offsets):
-        from fla_npu.ops import ascendc
-
-        y = ascendc.causal_conv1d_fn(
-            x,
-            weight,
-            None,
-            query_start_loc_cpu=offsets,
-            activation=None,
-        )
-        ctx.save_for_backward(x, weight)
-        ctx.offsets = offsets
-        return y
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        from fla_npu.ops import ascendc
-
-        x, weight = ctx.saved_tensors
-        dx, dw, *_ = ascendc.causal_conv1d_bwd(
-            x,
-            None,
-            weight,
-            grad_output.contiguous(),
-            query_start_loc=ctx.offsets,
-            activation=0,
-            input_layout="TND",
-        )
-        return dx, dw, None
-
-
-class FlaGDNKernel(GDNKernel):
+class FlaGDNKernel(GatedDeltaKernel):
     @dataclass(kw_only=True, slots=True)
-    class Config(GDNKernel.Config):
+    class Config(GatedDeltaKernel.Config):
         pass
 
     def __init__(self, config: Config):
@@ -115,27 +83,44 @@ class FlaGDNKernel(GDNKernel):
         return _ChunkGDN.apply(*tensors, offsets).squeeze(0)
 
 
-class FlaInnerGDN(InnerGDN):
+class FlaInnerGDN(InnerGatedDeltaNet):
+    kernel: torch.nn.Module
+
     @dataclass(kw_only=True, slots=True)
-    class Config(InnerGDN.Config):
+    class Config(InnerGatedDeltaNet.Config):
         pass
 
     def __init__(self, config: Config):
         require_device("Ascend950", feature="fla-npu GDN convolution")
         super().__init__(config)
 
-    def short_convolution(self, x, weight, initial_state=None, *, cu_seqlens, routing):
-        if initial_state is not None or routing is not None:
-            raise NotImplementedError("fla-npu convolution does not support context-parallel state")
-        offsets = cu_seqlens.tolist() if cu_seqlens is not None else [0, x.shape[0]]
-        weight = weight[:, 0].T.to(x.dtype).contiguous()
-        return F.silu(_CausalConv1d.apply(x.contiguous(), weight, offsets))
+    def forward(
+        self,
+        query_TC,
+        key_TC,
+        value_TC,
+        a_TH,
+        b_TH,
+        conv_q_weight_C1W,
+        conv_k_weight_C1W,
+        conv_v_weight_C1W,
+        A_log_H,
+        dt_bias_H,
+        cu_seqlens,
+        *,
+        key_head_dim,
+        value_head_dim,
+    ):
+        q = causal_conv1d(query_TC, conv_q_weight_C1W, cu_seqlens).unflatten(-1, (-1, key_head_dim))
+        k = causal_conv1d(key_TC, conv_k_weight_C1W, cu_seqlens).unflatten(-1, (-1, key_head_dim))
+        v = causal_conv1d(value_TC, conv_v_weight_C1W, cu_seqlens).unflatten(-1, (-1, value_head_dim))
+        g = -torch.exp(A_log_H.float()) * functional.softplus(a_TH.float() + dt_bias_H)
+        beta = torch.sigmoid(b_TH)
+        return self.kernel(q, k, v, g, beta, cu_seqlens=cu_seqlens)
 
 
-@override(
-    target=InnerGDN.Config, exact=True, description="GDN training with fla-npu AscendC operators"
-)
-def npu_gated_delta_net(cfg: InnerGDN.Config) -> FlaInnerGDN.Config:
+@override(target=InnerGatedDeltaNet.Config, exact=True, description="GDN training with fla-npu AscendC operators")
+def npu_gated_delta_net(cfg: InnerGatedDeltaNet.Config) -> FlaInnerGDN.Config:
     new = derive(cfg, FlaInnerGDN.Config)
     new.kernel = derive(cfg.kernel, FlaGDNKernel.Config)
     return new

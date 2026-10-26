@@ -5,24 +5,20 @@
 
 """Qwen3.5 text training with fla-npu GDN."""
 
-from torchtitan.components.data import (
-    ConcatThenSplitPackingConfig,
-    GrainDataLoader,
-    SingleDatasetConfig,
-)
+from torchtitan.components.data import ConcatThenSplitPackingConfig, GrainDataLoader, SingleDatasetConfig
 from torchtitan.components.data.collators import TextCollator
 from torchtitan.components.data.sources import HuggingFaceRandomAccessSource
-from torchtitan.components.data.text_datasets import DATASETS, TextProcessor
 from torchtitan.components.loss import ChunkedLossWrapper, CrossEntropyLoss
 from torchtitan.components.optim import AdamW, LRSchedulersContainer, Optim, OptimizersContainer
 from torchtitan.config import OverrideConfig, TrainingConfig
+from torchtitan.hf_datasets.text_datasets import DATASETS, TextProcessor
 from torchtitan.models.common.config_utils import decoder_vocab_size
 from torchtitan.models.qwen3_5 import build_model_config
 from torchtitan.observability.metrics import MetricsProcessor
 from torchtitan.trainer import Trainer
 
-from torchtitan_ascend.changes import override_target
-from torchtitan_ascend.modules.gdn import npu_gated_delta_net
+from torchtitan_ascend.config import override_target
+from torchtitan_ascend.overrides.gdn import npu_gated_delta_net
 
 
 def _text_config(flavor: str, *, hf_assets_path: str, dataset) -> Trainer.Config:

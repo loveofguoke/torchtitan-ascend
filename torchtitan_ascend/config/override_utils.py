@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Activate TorchTitan overrides using references to their factory functions."""
 
 import inspect

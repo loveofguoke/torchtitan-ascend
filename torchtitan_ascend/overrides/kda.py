@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Tianjin University
+# SPDX-License-Identifier: BSD-3-Clause
 """Ascend implementations of Kimi Delta Attention components."""
 
 from __future__ import annotations
@@ -6,10 +8,12 @@ from dataclasses import dataclass
 
 import spmd_types as spmd
 import torch
-import torch.nn.functional as F
 from torchtitan.config import derive, override
 from torchtitan.models.kimi_k3.kda import InnerKDA, KDAKernel
 from torchtitan.protocols.module import Module
+
+from torchtitan_ascend.device import require_device
+from torchtitan_ascend.models.common.linear_attention import causal_conv1d
 
 __all__ = [
     "AscendInnerKDA",
@@ -47,31 +51,19 @@ def _to_bsnd(x):
 
 
 class NpuChunkKDAFunction(torch.autograd.Function):
-    """Autograd wrapper over fla_npu's fused ascendc chunk_kda fwd/bwd.
+    """Fused KDA forward/backward with FP32 gates and explicit normalization.
 
-    Forward: ``npu_chunk_kda_fwd`` -- 12 outputs aligned with FLA's
-    ``chunk_kda_fwd``: (o, final_state, gk, Aqk, Akk, w, u, qg, kg, v_new, h,
-    initial_state), with ``disable_recompute=True`` (saved tensors are real
-    outputs, no recompute).
-
-    Backward: the fused ``npu_chunk_kda_bwd`` for K=V=128 (the fused path's
-    only supported head_dim). Both directions use fla_npu's public AscendC
-    interfaces, which select the Stable-ABI launcher by default. Backend
-    selection and any compatibility fallback remain owned by fla_npu.
-
-    Pre/post processing mirrors fla's ``_chunk_kda``: l2-norm on q/k
-    (``use_qk_l2norm_in_kernel``), sigmoid on beta
-    (``use_beta_sigmoid_in_kernel``), and their backward chain rules. The
-    *original* q/k/beta are what the backward chain rules need, so they are
-    what gets saved. fla_npu's kernels require g and beta in fp32 -- bf16
-    inputs are rejected by aclnn with 161002 -- so the wrapper upcasts at the
-    forward boundary and returns gradients in the caller's dtype.
+    Backward supports head dimension 128 and consumes BNSD intermediates.
     """
 
     @staticmethod
     def forward(
         ctx,
-        q, k, v, g, beta,
+        q,
+        k,
+        v,
+        g,
+        beta,
         scale,
         initial_state,
         output_final_state,
@@ -106,28 +98,45 @@ class NpuChunkKDAFunction(torch.autograd.Function):
 
         g_f = g.float()
 
-        (o, final_state, gk, Aqk, Akk, w, u, qg, kg, v_new, h, initial_state_out) = (
-            npu_chunk_kda_fwd(
-                q_n, k_n, v, g_f, beta_f,
-                layout="BSND",
-                initial_state=initial_state,
-                output_final_state=output_final_state,
-                cu_seqlens=cu_seqlens,
-                chunk_indices=chunk_indices,
-                safe_gate=safe_gate,
-                lower_bound=lower_bound,
-                use_gate_in_kernel=use_gate_in_kernel,
-                A_log=A_log,
-                dt_bias=dt_bias,
-                disable_recompute=True,
-                scale=float(scale),
-                chunk_size=chunk_size,
-            )
+        (o, final_state, gk, Aqk, Akk, w, u, qg, kg, v_new, h, initial_state_out) = npu_chunk_kda_fwd(
+            q_n,
+            k_n,
+            v,
+            g_f,
+            beta_f,
+            layout="BSND",
+            initial_state=initial_state,
+            output_final_state=output_final_state,
+            cu_seqlens=cu_seqlens,
+            chunk_indices=chunk_indices,
+            safe_gate=safe_gate,
+            lower_bound=lower_bound,
+            use_gate_in_kernel=use_gate_in_kernel,
+            A_log=A_log,
+            dt_bias=dt_bias,
+            disable_recompute=True,
+            scale=float(scale),
+            chunk_size=chunk_size,
         )
 
         ctx.save_for_backward(
-            q, k, v, gk, g_f, beta_raw, beta_f,
-            A_log, dt_bias, Aqk, Akk, w, u, qg, kg, v_new, h,
+            q,
+            k,
+            v,
+            gk,
+            g_f,
+            beta_raw,
+            beta_f,
+            A_log,
+            dt_bias,
+            Aqk,
+            Akk,
+            w,
+            u,
+            qg,
+            kg,
+            v_new,
+            h,
         )
         # Plain host data cannot go through save_for_backward.
         ctx.cu_seqlens = cu_seqlens
@@ -145,9 +154,8 @@ class NpuChunkKDAFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, do, dht):
-        (q, k, v, gk, g_f, beta_raw, beta_f,
-         A_log, dt_bias, Aqk, Akk, w, u, qg, kg, v_new, h) = ctx.saved_tensors
-        cu_seqlens, chunk_indices = ctx.cu_seqlens, ctx.chunk_indices
+        (q, k, v, gk, g_f, beta_raw, beta_f, A_log, dt_bias, Aqk, Akk, w, u, qg, kg, v_new, h) = ctx.saved_tensors
+        cu_seqlens = ctx.cu_seqlens
 
         head_dim = q.shape[-1]
         assert head_dim == 128, "NPU KDA backward requires head_dim == 128"
@@ -173,14 +181,22 @@ class NpuChunkKDAFunction(torch.autograd.Function):
             return x_HTD.unsqueeze(0) if _is_varlen else x_HTD
 
         dq, dk, dv, db, dg, dh0, dA, dbias = ascendc.npu_chunk_kda_bwd(
-            _bwd_in(_to_bnsd(q_n)), _bwd_in(_to_bnsd(k_n)), _bwd_in(_to_bnsd(v)),
+            _bwd_in(_to_bnsd(q_n)),
+            _bwd_in(_to_bnsd(k_n)),
+            _bwd_in(_to_bnsd(v)),
             _bwd_in(beta_f.transpose(1, 2).contiguous()),
-            _bwd_in(gk), _bwd_in(Aqk), _bwd_in(Akk), _bwd_in(w),
-            _bwd_in(qg), _bwd_in(kg), _bwd_in(v_new),
+            _bwd_in(gk),
+            _bwd_in(Aqk),
+            _bwd_in(Akk),
+            _bwd_in(w),
+            _bwd_in(qg),
+            _bwd_in(kg),
+            _bwd_in(v_new),
             # h from the fwd is (B, NT, H, K, V); the varlen backward takes
             # (NT, H, K, V), the dense backward (B, NT, H, K, V).
             _bwd_in(h),
-            _bwd_in(_to_bnsd(do)), float(ctx.scale),
+            _bwd_in(_to_bnsd(do)),
+            float(ctx.scale),
             raw_g=_bwd_in(_to_bnsd(g_f)) if ctx.use_gate_in_kernel else None,
             A_log=A_log,
             dt_bias=dt_bias.reshape(q.shape[2], head_dim) if dt_bias is not None else None,
@@ -203,7 +219,11 @@ class NpuChunkKDAFunction(torch.autograd.Function):
             db = db * beta_raw.float().sigmoid() * (1 - beta_raw.float().sigmoid())
 
         return (
-            dq.to(q), dk.to(k), dv.to(v), dg.to(g_f), db.to(beta_raw),
+            dq.to(q),
+            dk.to(k),
+            dv.to(v),
+            dg.to(g_f),
+            db.to(beta_raw),
             None,  # scale
             None,  # initial_state
             None,  # output_final_state
@@ -215,9 +235,7 @@ class NpuChunkKDAFunction(torch.autograd.Function):
             None,  # lower_bound
             None,  # use_gate_in_kernel
             dA.to(ctx.A_log_in_dt) if dA is not None else None,  # A_log
-            dbias.reshape(-1).to(ctx.dt_bias_in_dt)
-            if dbias is not None
-            else None,  # dt_bias
+            dbias.reshape(-1).to(ctx.dt_bias_in_dt) if dbias is not None else None,  # dt_bias
             None,  # use_qk_l2norm_in_kernel
             None,  # use_beta_sigmoid_in_kernel
         )
@@ -229,18 +247,32 @@ spmd.register_local_autograd_function(NpuChunkKDAFunction)
 
 
 def npu_chunk_kda(
-    q, k, v, g, beta, scale=None, initial_state=None, output_final_state=False,
-    use_qk_l2norm_in_kernel=False, use_gate_in_kernel=False,
-    use_beta_sigmoid_in_kernel=False, allow_neg_eigval=False,
-    safe_gate=False, lower_bound=None, chunk_size=64, disable_recompute=False,
-    return_intermediate_states=False, state_v_first=False,
-    cu_seqlens=None, cu_seqlens_cpu=None, cp_context=None, **kwargs,
+    q,
+    k,
+    v,
+    g,
+    beta,
+    scale=None,
+    initial_state=None,
+    output_final_state=False,
+    use_qk_l2norm_in_kernel=False,
+    use_gate_in_kernel=False,
+    use_beta_sigmoid_in_kernel=False,
+    allow_neg_eigval=False,
+    safe_gate=False,
+    lower_bound=None,
+    chunk_size=64,
+    disable_recompute=False,
+    return_intermediate_states=False,
+    state_v_first=False,
+    cu_seqlens=None,
+    cu_seqlens_cpu=None,
+    cp_context=None,
+    **kwargs,
 ):
     """Run fla_npu's fused AscendC KDA with head_dim=128."""
     if q.shape[-1] != 128:
-        raise ValueError(
-            f"NPU KDA backend requires head_dim == 128, got {q.shape[-1]}."
-        )
+        raise ValueError(f"NPU KDA backend requires head_dim == 128, got {q.shape[-1]}.")
     A_log = kwargs.pop("A_log", None)
     dt_bias = kwargs.pop("dt_bias", None)
     if disable_recompute is not False:
@@ -260,76 +292,27 @@ def npu_chunk_kda(
         # The backend derives the canonical sequence-major chunk table;
         # let it select the ordering by passing None.
     o, final_state = NpuChunkKDAFunction.apply(
-        q, k, v, g, beta, scale if scale is not None else q.shape[-1] ** -0.5,
-        initial_state, output_final_state, state_v_first,
-        cu_seqlens, chunk_indices, chunk_size, safe_gate, lower_bound,
-        use_gate_in_kernel, A_log, dt_bias,
+        q,
+        k,
+        v,
+        g,
+        beta,
+        scale if scale is not None else q.shape[-1] ** -0.5,
+        initial_state,
+        output_final_state,
+        state_v_first,
+        cu_seqlens,
+        chunk_indices,
+        chunk_size,
+        safe_gate,
+        lower_bound,
+        use_gate_in_kernel,
+        A_log,
+        dt_bias,
         use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
         use_beta_sigmoid_in_kernel=use_beta_sigmoid_in_kernel,
     )
     return o, final_state
-
-
-
-class _CausalConv1d(torch.autograd.Function):
-    """Bind the fla-npu packed convolution to its explicit backward operator."""
-
-    @staticmethod
-    def forward(ctx, x, weight, offsets):
-        from fla_npu.ops import ascendc
-
-        output = ascendc.causal_conv1d_fn(
-            x, weight, None, query_start_loc_cpu=offsets, activation=None
-        )
-        ctx.save_for_backward(x, weight)
-        ctx.offsets = offsets
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        from fla_npu.ops import ascendc
-
-        x, weight = ctx.saved_tensors
-        dx, dw, *_ = ascendc.causal_conv1d_bwd(
-            x,
-            None,
-            weight,
-            grad_output.contiguous(),
-            query_start_loc=ctx.offsets,
-            activation=0,
-            input_layout="TND",
-        )
-        return dx, dw, None
-
-
-def ascend_causal_conv1d(
-    x_BTC: torch.Tensor,
-    weight_CW: torch.Tensor,
-    *,
-    activation: str | None = None,
-    cu_seqlens: torch.Tensor | None = None,
-) -> torch.Tensor:
-    """Run fla-npu depthwise causal convolution with packed-sequence boundaries.
-
-    Inputs use [B, T, C] and weights use [C, W]. The AscendC operators consume
-    packed [T, C] inputs and [W, C] weights; SiLU remains a PyTorch operation.
-    """
-    if x_BTC.dim() != 3:
-        raise ValueError(f"expected [B, T, C], got {tuple(x_BTC.shape)}")
-    if activation not in (None, "silu"):
-        raise NotImplementedError(f"activation {activation!r} is not implemented on NPU")
-    batch, tokens, channels = x_BTC.shape
-    if cu_seqlens is not None:
-        if batch != 1:
-            raise ValueError("packed cu_seqlens requires batch size 1")
-        offsets = cu_seqlens.tolist()
-    else:
-        offsets = [index * tokens for index in range(batch + 1)]
-    weight_WC = weight_CW.T.to(x_BTC.dtype).contiguous()
-    output = _CausalConv1d.apply(
-        x_BTC.reshape(batch * tokens, channels).contiguous(), weight_WC, offsets
-    ).reshape(batch, tokens, channels)
-    return F.silu(output) if activation == "silu" else output
 
 
 class AscendKDAKernel(KDAKernel):
@@ -340,7 +323,7 @@ class AscendKDAKernel(KDAKernel):
         pass
 
     def __init__(self, config: Config):
-        """Initialize without loading KDAKernel's unrelated attn_gym dependency."""
+        require_device("Ascend950", feature="fla-npu KDA")
         Module.__init__(self)
         self.lower_bound = config.lower_bound
 
@@ -391,8 +374,7 @@ class AscendKDAKernel(KDAKernel):
         composite stays for the context-parallel core.
         """
         gate_1THK = self.lower_bound * torch.sigmoid(
-            torch.exp(A_log_H.float()).unsqueeze(-1).unsqueeze(0)
-            * (raw_gate_1THK.float() + dt_bias_HK.float())
+            torch.exp(A_log_H.float()).unsqueeze(-1).unsqueeze(0) * (raw_gate_1THK.float() + dt_bias_HK.float())
         )
         return (
             _l2norm(q_1THK),
@@ -404,6 +386,9 @@ class AscendKDAKernel(KDAKernel):
 
 class AscendInnerKDA(InnerKDA):
     """``InnerKDA`` with the Ascend short convolution."""
+
+    head_dim: int
+    kernel: torch.nn.Module
 
     @dataclass(kw_only=True, slots=True)
     class Config(InnerKDA.Config):
@@ -424,20 +409,11 @@ class AscendInnerKDA(InnerKDA):
         *,
         cu_seqlens: torch.Tensor | None,
     ) -> torch.Tensor:
-        mixed_qkv_BTC = torch.cat((query_TC, key_TC, value_TC), dim=-1).unsqueeze(0)
-        conv_weight_C1W = torch.cat(
-            (conv_q_weight_C1W, conv_k_weight_C1W, conv_v_weight_C1W), dim=0
-        )
-        conv_output_BTC = ascend_causal_conv1d(
-            mixed_qkv_BTC,
-            conv_weight_C1W[:, 0],
-            activation="silu",
-            cu_seqlens=cu_seqlens,
-        )
+        mixed_qkv_TC = torch.cat((query_TC, key_TC, value_TC), dim=-1)
+        conv_weight_C1W = torch.cat((conv_q_weight_C1W, conv_k_weight_C1W, conv_v_weight_C1W), dim=0)
+        conv_output_BTC = causal_conv1d(mixed_qkv_TC, conv_weight_C1W, cu_seqlens).unsqueeze(0)
         q_BTC, k_BTC, v_BTC = conv_output_BTC.chunk(3, dim=-1)
-        q_BTNK, k_BTNK, v_BTNV = (
-            tensor.unflatten(-1, (-1, self.head_dim)) for tensor in (q_BTC, k_BTC, v_BTC)
-        )
+        q_BTNK, k_BTNK, v_BTNV = (tensor.unflatten(-1, (-1, self.head_dim)) for tensor in (q_BTC, k_BTC, v_BTC))
         output_BTNV = self.kernel(
             q_BTNK,
             k_BTNK,

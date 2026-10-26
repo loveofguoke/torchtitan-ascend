@@ -3,9 +3,11 @@
 ## 实现边界
 
 - 复用 TorchTitan 的模型、配置、训练入口和资源下载工具；本仓仅维护运行模型所需的 Ascend 适配。
-- 通用问题优先提交上游，合入前使用临时 patch；只有明确不适合上游维护时，才采用本地 fixes 或 override。硬件算子实现通过 override 接入。
+- 通用问题优先提交上游；必要的窄范围运行时修复放在 `torchtitan_ascend/patches/`，完整替换实现及其 Config、factory 放在 `torchtitan_ascend/overrides/`。
+- 模型实现放在 `models/`，已有实际复用的模型逻辑再提取到 `models/common/`。目录和模块随实际实现创建。
 - 修改 override 时先阅读所用 TorchTitan 版本的 `torchtitan/config/OVERRIDE.md`，沿用其概念和接口。
-- 临时依赖补丁仅携带必要运行代码，保留与修复无关的上游文案和注释。用途、适用版本和上游来源记录在 `patches/README.md`；提交上游的 PR 包含对应测试。
+- 新增或修改运行时修复时阅读 `torchtitan_ascend/patches/README.md`，使用 `@patch` 声明目标并自动注册。依赖库的原生能力要求记录在该文档。
+- 新增或调整安装阶段源码补丁时，先阅读 `fixes/README.md` 的准入与移除要求；仅将已验证必需、无法由运行时修复覆盖的补丁放入根目录 `fixes/`，通过安装指南显式应用。
 
 ## 硬件状态
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Apply registered fixes, then delegate training and CLI parsing to TorchTitan."""
+"""Apply registered patches, then delegate training and CLI parsing to TorchTitan."""
 
 
 def main() -> None:

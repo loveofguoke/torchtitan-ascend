@@ -42,7 +42,7 @@ python-version = "3.12"
 project-includes = ["torchtitan_ascend/**/*.py", "tests/**/*.py", "pre-commit/**/*.py"]
 # These external runtime packages are unavailable in the isolated lint env.
 # Internal Ascend modules remain fully checked.
-replace-imports-with-any = ["torch", "torch.*", "torchtitan", "torchtitan.*", "torchtitan_recipes.*", "pytest"]
+replace-imports-with-any = ["torch", "torch.*", "torch_npu", "torch_npu.*", "torchtitan", "torchtitan.*", "torchtitan_recipes.*", "pytest"]
 
 [tool.pylint.reports]
 reports = false
@@ -60,7 +60,7 @@ exclude_dirs = ["tests", "test", "venv", ".venv", "build", "dist", "__pycache__"
 tests = ["B608", "B602", "B605", "B607", "B307", "B324", "B301", "B306", "B321", "B311", "B105", "B106", "B107", "B108", "B110"]
 
 [tool.codespell]
-skip = "*.patch,*.toml,*.py,*.cpp,*.hpp,*.c,*.h"
+skip = "*.toml,*.py,*.cpp,*.hpp,*.c,*.h"
 ignore-words-list = "CANN,cann,NNAL,nnal,ASCEND,ascend,EnQue,CopyIn,ArchType,AND,ND,tbe,copyin,alog,te"
 
 [tool.pytest.ini_options]

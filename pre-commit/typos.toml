@@ -1,7 +1,3 @@
-[files]
-# Patch payloads belong to external repositories; preserve them verbatim.
-extend-exclude = ["*.patch"]
-
 [default.extend-words]
 CANN = "CANN"
 ND = "ND"

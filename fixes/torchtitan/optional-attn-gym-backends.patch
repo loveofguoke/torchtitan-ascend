@@ -1,0 +1,74 @@
+--- a/torchtitan/models/qwen3_5/gdn.py
++++ b/torchtitan/models/qwen3_5/gdn.py
+@@ -17,11 +17,26 @@
+ import torch
+ import torch.nn.functional as F
+ import torch_remat as remat
+-from attn_gym.linear import causal_conv1d, chunk_gdn, l2norm, recurrent_gdn
+-from attn_gym.linear.gdn.impl.cudnn import ChunkGdnCudnnPacked
+-from attn_gym.linear.gdn.ops import _ChunkGDN
+-from attn_gym.linear.kda.fwd.triton.l2norm_fwd import _L2Norm
+-from attn_gym.linear.short_conv.cute import _ConfiguredShortConv, _ShortConv
++try:
++    from attn_gym.linear import causal_conv1d, chunk_gdn, l2norm, recurrent_gdn
++    from attn_gym.linear.gdn.impl.cudnn import ChunkGdnCudnnPacked
++    from attn_gym.linear.gdn.ops import _ChunkGDN
++    from attn_gym.linear.kda.fwd.triton.l2norm_fwd import _L2Norm
++    from attn_gym.linear.short_conv.cute import _ConfiguredShortConv, _ShortConv
++except ImportError as error:
++    cause = error
++    while isinstance(cause.__cause__, ImportError):
++        cause = cause.__cause__
++    if not isinstance(cause, ModuleNotFoundError) or (cause.name or "").split(".")[0] not in {"cutlass", "cuda", "cudnn", "nvidia"}:
++        raise
++
++    class _MissingKernel(torch.autograd.Function):
++        @staticmethod
++        def forward(ctx, *args, **kwargs):
++            raise ImportError("Attention Gym kernels require their optional CUDA backends")
++
++    ChunkGdnCudnnPacked = _ChunkGDN = _L2Norm = _ConfiguredShortConv = _ShortConv = _MissingKernel
++    causal_conv1d = chunk_gdn = l2norm = recurrent_gdn = _MissingKernel.apply
+ from torch import nn
+ 
+ from torchtitan.distributed.batch_invariant import is_in_batch_invariant_mode
+--- a/torchtitan/models/kimi_k3/kda.py
++++ b/torchtitan/models/kimi_k3/kda.py
+@@ -11,14 +11,29 @@
+ import spmd_types as spmd
+ import torch
+ import torch_remat as remat
+-from attn_gym.linear._delta_rule.gate import _FusedGate
+-from attn_gym.linear.kda import bound_gate, chunk_kda
+-from attn_gym.linear.kda.fwd.triton.l2norm_fwd import _L2Norm, l2norm
+-from attn_gym.linear.kda.impl.cudnn import ChunkKdaCudnn
+-from attn_gym.linear.kda.impl.fused import _ChunkKDA
+-from attn_gym.linear.kda.masking import _MaskRows
+-from attn_gym.linear.short_conv import causal_conv1d
+-from attn_gym.linear.short_conv.cute import _ConfiguredShortConv, _ShortConv
++try:
++    from attn_gym.linear._delta_rule.gate import _FusedGate
++    from attn_gym.linear.kda import bound_gate, chunk_kda
++    from attn_gym.linear.kda.fwd.triton.l2norm_fwd import _L2Norm, l2norm
++    from attn_gym.linear.kda.impl.cudnn import ChunkKdaCudnn
++    from attn_gym.linear.kda.impl.fused import _ChunkKDA
++    from attn_gym.linear.kda.masking import _MaskRows
++    from attn_gym.linear.short_conv import causal_conv1d
++    from attn_gym.linear.short_conv.cute import _ConfiguredShortConv, _ShortConv
++except ImportError as error:
++    cause = error
++    while isinstance(cause.__cause__, ImportError):
++        cause = cause.__cause__
++    if not isinstance(cause, ModuleNotFoundError) or (cause.name or "").split(".")[0] not in {"cutlass", "cuda", "cudnn", "nvidia"}:
++        raise
++
++    class _MissingKernel(torch.autograd.Function):
++        @staticmethod
++        def forward(ctx, *args, **kwargs):
++            raise ImportError("Attention Gym kernels require their optional CUDA backends")
++
++    _FusedGate = _L2Norm = ChunkKdaCudnn = _ChunkKDA = _MaskRows = _ConfiguredShortConv = _ShortConv = _MissingKernel
++    bound_gate = chunk_kda = l2norm = causal_conv1d = _MissingKernel.apply
+ from torch import nn
+ 
+ from torchtitan.models.common.attention import (

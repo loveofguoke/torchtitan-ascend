@@ -14,7 +14,7 @@ def main() -> int:
     for filename in sys.argv[1:]:
         path = Path(filename)
         text = path.read_text(encoding="utf-8")
-        if HEADER.strip() in text.splitlines()[:5]:
+        if any(line.startswith("# SPDX-License-Identifier:") for line in text.splitlines()[:5]):
             continue
         lines = text.splitlines(keepends=True)
         index = int(bool(lines and lines[0].startswith("#!")))

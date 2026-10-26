@@ -12,7 +12,7 @@
 
 ## 启动
 
-完成[安装](../../INSTALL.md)后执行。新建 shell 时先按[准备环境](../../INSTALL.md#准备环境)设置环境。
+完成[基础安装](../../INSTALL.md)，并加载[训练环境](../../INSTALL.md#验证安装)后执行：
 
 ```bash
 cd "$TORCHTITAN_SRC"

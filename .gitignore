@@ -4,6 +4,7 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+/.venv/
 outputs/
 # Platform-specific binary provisioned locally or by CI.
 /gitleaks
