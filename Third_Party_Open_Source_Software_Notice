@@ -2,7 +2,7 @@
 
 本项目自有代码采用 Apache-2.0，见 LICENSE。
 
-`torchtitan_ascend/recipes/` 复用 TorchTitan 的模型及训练配方接口。TorchTitan 版权归 Meta Platforms, Inc. and affiliates，采用 BSD-3-Clause，完整条款见 LICENSE-BSD-3-Clause。
+`torchtitan_ascend/models/glm5/` 和 `torchtitan_ascend/recipes/` 基于 TorchTitan 的模型代码及训练配方接口。TorchTitan 版权归 Meta Platforms, Inc. and affiliates，采用 BSD-3-Clause，完整条款见 LICENSE-BSD-3-Clause。
 
 `torchtitan_ascend/patches/` 包含对 torch_npu 接口的运行时适配，遵循其 Apache-2.0 许可证。
 
