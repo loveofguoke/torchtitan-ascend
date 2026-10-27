@@ -24,3 +24,17 @@
 - 导入、解析和安装失败直接抛出异常；模块顶层不得初始化硬件或执行计算。
 
 原生依赖要求见[安装补丁](../../fixes/README.md)，构建步骤见[安装指南](../../INSTALL.md)。
+
+## 当前运行时修复
+
+运行时修复只接受已经复现、无法通过 TorchTitan 公共配置或 override 精确表达的问题。每项
+修复必须保留触发条件、数学等价性测试、验证软件栈和移除条件。
+
+| 模块 | 触发条件 | 原因与等价性 | 当前状态与移除条件 |
+|---|---|---|---|
+| `vocab_parallel_loss.py` | `spmd_mesh_size("tp") > 1`，词表 logits 按 TP rank 分片并进入 `_LossParallelCrossEntropy` | 已验证的 Atlas A2、PyTorch/TorchNPU 2.14 nightly、CANN 9.1 栈中，上游 forward/backward 的布尔索引赋值会进入 `aclnnNonzeroV2` 并失败。替代实现仅将布尔赋值改为 `where/gather/scatter`，保留全局 log-softmax、TP MAX/SUM all-reduce、ignore-index 和 backward 数学 | 该固定栈的 TP 训练需要；单卡和不含 TP 的拓扑不会调用目标 loss。Ascend 950（A5）或后续软件栈只有在关闭 patch 后通过 TP2/TP4 loss、logits 梯度和参数梯度对照，才可删除或增加精确 capability gate |
+
+GLM DTensor truncated-normal 不放在本目录：它不替换 TorchTitan 或 PyTorch 的共享运行时方法，
+而是由 GLM recipe 显式改写自身 config 中的 initializer，因此位于
+`torchtitan_ascend/overrides/glm5.py`。将其注册成全局 `torch.nn.init.trunc_normal_` patch 会影响
+无关模型，扩大 blast radius。
