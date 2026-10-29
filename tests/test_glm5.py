@@ -10,15 +10,12 @@ import torch.distributed as dist
 
 from torchtitan.protocols.module import Module
 from torchtitan_ascend import setup
-from torchtitan_ascend.config.override_utils import has_override
 from torchtitan_ascend.overrides.glm5 import npu_safe_trunc_normal_
-from torchtitan_ascend.overrides.rope import npu_complex_rope
 from torchtitan_ascend.recipes.glm5 import (
     glm5_2_debugmodel_mtp_npu,
     glm5_2_debugmodel_npu,
     glm5_3_debugmodel_mtp_npu,
     glm5_3_debugmodel_npu,
-    glm5_debugmodel_npu,
 )
 
 
@@ -34,7 +31,7 @@ def test_glm5_debugmodel_npu_config(recipe):
     assert config.training.num_tokens_per_microbatch_per_dp_rank == 256
     assert config.training.max_context_length == 128
     assert config.training.steps == 10
-    assert has_override(config, npu_complex_rope)
+    assert any(entry[0] == "torchtitan_ascend.overrides.glm5_dsa.npu_glm5_dsa" for entry in config.override.imports)
     assert any(
         isinstance(initializer, partial) and initializer.func is npu_safe_trunc_normal_
         for _, module_config, _, _ in config.model.traverse(Module.Config, recurse=True)
@@ -53,7 +50,16 @@ def test_glm5_mtp_npu_config(recipe):
     assert config.loss.loss_fn.mtp_scale == 0.125
 
 
-def test_glm5_single_card(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "recipe,stage,checkpoint",
+    [
+        (glm5_2_debugmodel_npu, "sparse", False),
+        (glm5_2_debugmodel_npu, "warmup", False),
+        (glm5_2_debugmodel_npu, "frozen", False),
+        (glm5_3_debugmodel_mtp_npu, "sparse", True),
+    ],
+)
+def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint):
     if not hasattr(torch, "npu") or not torch.npu.is_available():
         pytest.skip("requires one visible Ascend NPU")
 
@@ -70,15 +76,24 @@ def test_glm5_single_card(tmp_path, monkeypatch):
         monkeypatch.setenv(key, value)
 
     setup()
-    config = glm5_debugmodel_npu()
+    config = recipe(seq_len=32, indexer_stage=stage)
+    if checkpoint:
+        from torchtitan.distributed.activation_checkpoint import FullAC
+
+        config.activation_checkpoint = FullAC.Config(preserve_rng_state=False)
     config.dump_folder = str(tmp_path)
     config.debug.seed = 42
     config.training.steps = 2
     trainer = None
     try:
         trainer = config.build()
-        parameter = next(trainer.engine.model_parts[0].parameters())
-        before = parameter.detach().clone()
+        parameters = dict(trainer.engine.model_parts[0].named_parameters())
+        indexer = next(parameter for name, parameter in parameters.items() if ".indexer.wq_b.weight" in name)
+        backbone = next(parameter for name, parameter in parameters.items() if "tok_embeddings.weight" in name)
+        before_indexer = indexer.detach().clone()
+        before_backbone = backbone.detach().clone()
+        if stage == "warmup":
+            assert all(not parameter.requires_grad for name, parameter in parameters.items() if ".indexer." not in name)
         metrics = []
         original_log = trainer.metrics_processor.log
 
@@ -92,8 +107,9 @@ def test_glm5_single_card(tmp_path, monkeypatch):
         assert trainer.engine.num_completed_steps == 2
         assert len(metrics) == 2
         assert all(math.isfinite(value) for row in metrics for value in row)
-        assert torch.isfinite(parameter).all().item()
-        assert not torch.equal(before, parameter), "optimizer did not update the model"
+        assert torch.isfinite(backbone).all().item()
+        assert (not torch.equal(before_indexer, indexer)) == (stage != "frozen")
+        assert (not torch.equal(before_backbone, backbone)) == (stage != "warmup")
     finally:
         if trainer is not None:
             trainer.close()

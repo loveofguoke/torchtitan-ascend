@@ -9,3 +9,5 @@ exclude = .git,__pycache__,.venv,venv,build,dist,*.egg-info
 per-file-ignores =
     torchtitan_ascend/overrides/gdn.py:N803,N806
     torchtitan_ascend/overrides/kda.py:N803,N806
+    torchtitan_ascend/overrides/glm5_dsa.py:N803,N806
+    torchtitan_ascend/models/glm5/*.py:N803,N806

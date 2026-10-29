@@ -2,34 +2,69 @@
 
 ## 安装
 
-先完成[基础安装](../../INSTALL.md)。本仓提供完整的 GLM-5 模型定义、DSA、MTP、
-并行化和 checkpoint 映射，代码位于 `torchtitan_ascend.models.glm5`。模型通过
-TorchTitan 的公共配置、训练、并行化和数据接口接入，不复制 Trainer 或通用训练组件。
-模型实现与 [TorchTitan PR #5578](https://github.com/pytorch/torchtitan/pull/5578)
-中的 GLM-5 实现保持一致，并适配本仓安装指南固定的 TorchTitan
-`edde21fb648d446fecb5b78ef42d8c432274b935` 公共接口。上游正式发布后可直接切换到
-对应公共模型包。
+先完成[基础安装](../../INSTALL.md)。GLM-5.2/5.3 的结构、配置、并行化和 checkpoint
+映射位于 `torchtitan_ascend.models.glm5`，复用固定 TorchTitan
+`edde21fb648d446fecb5b78ef42d8c432274b935` 的 MLA、router、MTP 和训练组件。
+GLM 上游化工作见 [TorchTitan PR #5578](https://github.com/pytorch/torchtitan/pull/5578)。
+
+NPU DSA 实现位于 `torchtitan_ascend/overrides/glm5_dsa.py`，由 GLM NPU recipe
+显式启用。模型构建前替换 GLM attention Config，并在工厂内组装所需的 RoPE 和 indexer。
+不修改 PyTorch、TorchNPU 或其他模型的全局调用路径。
 
 ## 训练配置
 
-配置模块：`torchtitan_ascend.recipes.glm5`。
+配置模块为 `torchtitan_ascend.recipes.glm5`。
 
-| CONFIG | 模型 | 数据 |
+| CONFIG | 模型 |
+|---|---|
+| `glm5_2_debugmodel_npu` | GLM-5.2 debug |
+| `glm5_2_debugmodel_mtp_npu` | GLM-5.2 debug + MTP |
+| `glm5_2_scaled_debugmodel_npu` | GLM-5.2 scaled debug |
+| `glm5_3_debugmodel_npu` | GLM-5.3 debug |
+| `glm5_3_debugmodel_mtp_npu` | GLM-5.3 debug + MTP |
+| `glm5_3_scaled_debugmodel_npu` | GLM-5.3 scaled debug |
+
+`glm5_debugmodel_npu` 是 `glm5_2_debugmodel_npu` 的兼容名称。默认使用 BF16、
+上游 tokenizer 和 C4 测试数据，上下文长度 128，每 DP rank 的 microbatch 为
+256 tokens，共训练 10 步。配置随机初始化模型且不保存检查点，完整训练需配置实际数据、
+学习率计划、训练步数和 checkpoint。
+
+Debug 配置保留小 hidden size 和层数，attention 使用融合算子要求的 512 维 latent KV、
+64 维 RoPE、128 维 indexer 和 32 个 attention heads。
+
+## 两阶段训练
+
+各 recipe 接受 `indexer_stage` 和 `indexer_loss_coeff`：
+
+| indexer_stage | 主 attention | 参数更新 |
 |---|---|---|
-| `glm5_2_debugmodel_npu` | GLM-5.2 debug | 上游自带 tokenizer 和 C4 测试数据 |
-| `glm5_2_debugmodel_mtp_npu` | GLM-5.2 debug + MTP | 上游自带 tokenizer 和 C4 测试数据 |
-| `glm5_2_scaled_debugmodel_npu` | GLM-5.2 scaled debug | 上游自带 tokenizer 和 C4 测试数据 |
-| `glm5_3_debugmodel_npu` | GLM-5.3 debug | 上游自带 tokenizer 和 C4 测试数据 |
-| `glm5_3_debugmodel_mtp_npu` | GLM-5.3 debug + MTP | 上游自带 tokenizer 和 C4 测试数据 |
-| `glm5_3_scaled_debugmodel_npu` | GLM-5.3 scaled debug | 上游自带 tokenizer 和 C4 测试数据 |
+| `warmup` | 全部因果 key | 冻结主模型，仅训练 indexer 的 KL 目标 |
+| `sparse`（默认） | indexer 选择的 top-k key | 训练主模型和 indexer，后者使用独立 KL 目标 |
+| `frozen` | indexer 选择的 top-k key | 固定预训练 indexer，仅训练主模型 |
 
-`glm5_debugmodel_npu` 保留为 `glm5_2_debugmodel_npu` 的兼容名称。
+Indexer 输入及教师分布从主 attention 的梯度图分离。KL 梯度通过 TorchTitan
+`AuxLoss` 注入，并使用 trainer 的全局有效 token 数归一化。主 attention 的反向由
+TorchNPU 的 SparseFlashAttention autograd 提供。
 
-默认配置为 BF16、eager、上下文长度 128、每 DP rank 的 microbatch 为 256 tokens，
-共训练 10 步。模型随机初始化，不保存检查点。完整训练需自行配置数据、训练步数、
-学习率计划和检查点。
+在 TorchTitan 源码目录创建 `glm5_stages.py`：
 
-## 启动
+```python
+from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+
+
+def glm5_warmup():
+    return glm5_2_debugmodel_npu(indexer_stage="warmup", indexer_loss_coeff=1.0)
+
+
+def glm5_sparse():
+    return glm5_2_debugmodel_npu(indexer_stage="sparse", indexer_loss_coeff=1.0)
+```
+
+配置实际 checkpoint 路径后，将 warmup 得到的 indexer 权重用于 sparse 阶段；两个阶段
+使用相同的参数命名和 Hugging Face checkpoint 映射。阶段切换时仅加载模型权重，
+重新创建 optimizer 和学习率计划，不恢复 warmup 的 optimizer 状态。
+
+## 启动与并行配置
 
 在 TorchTitan 源码目录执行：
 
@@ -40,124 +75,85 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
     ./run_train.sh
 ```
 
-验证 GLM-5.3 时，将 `CONFIG` 改为 `glm5_3_debugmodel_npu`。
+运行上面的 warmup 配置时，设置 `MODULE=glm5_stages CONFIG=glm5_warmup`。
 
-## Ascend 适配
-
-- ComplexRoPE 使用 `torch_npu.npu_rotary_mul` 执行相邻维旋转，并保留 TP/CP DTensor
-  placements。固定的 TorchTitan 基线仍在 eager 路径使用 complex tensor；上游后续加入的
-  compile 实数旋转路径不能替代该 eager NPU override。
-- DTensor truncated-normal 兼容实现用于已验证的 Atlas A2、PyTorch 2.14 nightly、
-  TorchNPU 2.14 nightly 与 CANN 9.1 组合：上游 rejection-sampling 路径在分片参数初始化时
-  可能使各 rank 以不同次序进入 lazy HCCL subgroup，表现为初始化卡死。该实现只替换 GLM
-  config 中的 DTensor initializer；普通 Tensor 继续调用 PyTorch 原实现。
-- DSA 使用 TorchTitan FlexAttention 接口表达动态 top-k 稀疏掩码；模型代码不固定 NPU
-  attention 后端。
-- 完整模型实现暂存于本仓 `torchtitan_ascend.models.glm5`，仅调用固定 TorchTitan
-  基线提供的模型配置、并行化、训练和 checkpoint 公共接口，不修改 TorchTitan 源码。
-
-上述初始化适配属于 PyTorch DTensor 初始化与旧 TorchNPU/HCCL 组合的跨层兼容缺口，
-不是 GLM 模型数学修改，也不能归因于单一 TorchTitan 组件。当前证据来自 Atlas A2 固定
-软件栈，因此它是该已验证基线上的必要兼容实现，不代表 Ascend 950（A5）及后续
-TorchNPU/CANN 永久需要相同适配。A5 是否可删除必须在冻结设备、驱动、CANN、PyTorch
-和 TorchNPU 版本后关闭对应适配，验证参数初始化 hash/统计量/首步 loss；在这些 A/B 证据完成前
-不按硬件名称猜测并删除。
-
-DTensor initializer 由 GLM recipe 显式改写自身 config，保留在
-`torchtitan_ascend/overrides/glm5.py`，不注册成全局 PyTorch patch，以免影响 Qwen、Kimi 等
-无关模型。
-
-## 支持范围
-
-模型支持 GLM-5.2/5.3、DSA、MTP、Hugging Face checkpoint adapter，以及
-FSDP、TP/SP、CP、PP、EP 的声明式 sharding。训练使用 BF16 参数与前向计算、FP32
-梯度归约。
-
-| 拓扑 | 并行配置 | Eager | Inductor + Ascend-Triton | Inductor + DVM |
-|---|---|---|---|---|
-| `single` | 单卡 | 通过 | 通过 | 通过 |
-| `ddp2` | DDP2 | 通过 | 通过 | 通过 |
-| `ddp8` | DDP8 | 通过 | 通过 | 通过 |
-| `fsdp8` | FSDP8 | 通过 | 通过 | 通过 |
-| `hsdp2x4` | HSDP：replicate 2，shard 4 | 通过 | 通过 | 通过 |
-| `hsdp4x2` | HSDP：replicate 4，shard 2 | 通过 | 通过 | 通过 |
-| `tp8` | TP8 + SP + EP8 | 通过 | 通过 | 通过 |
-| `cp2` | CP2 | 通过 | 通过 | 通过 |
-| `cp8` | CP8 | 通过 | 通过 | 通过 |
-| `pp8` | PP8 | 通过 | 通过 | 通过 |
-| `ep8` | FSDP8 + EP8 | 通过 | 通过 | 通过 |
-| `fsdp2-tp4` | FSDP2 + TP4 + SP + EP4 | 通过 | 通过 | 通过 |
-| `fsdp2-cp4` | FSDP2 + CP4 | 通过 | 通过 | 通过 |
-| `tp2-cp4` | TP2 + SP + CP4 + EP2 | 通过 | 通过 | 通过 |
-| `fsdp4-tp2` | FSDP4 + TP2 + SP + EP2 | 通过 | 通过 | 通过 |
-| `fsdp2-pp4` | FSDP2 + PP4 | 通过 | 通过 | 通过 |
-| `fsdp2-tp2-pp2` | FSDP2 + TP2 + SP + PP2 + EP2 | 通过 | 通过 | 通过 |
-| `fsdp2-tp4-ep8` | FSDP2 + TP4 + SP + EP8 | 通过 | 通过 | 通过 |
-
-### 启动并行拓扑
-
-TorchTitan 通过 Python recipe 选择并行拓扑。表中的拓扑名是便于阅读的验证标识，
-不是 `run_train.sh` 参数。例如，在 TorchTitan 源码目录创建
-`glm5_topology.py`：
+并行拓扑通过 Python recipe 配置。例如：
 
 ```python
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
 
 
-def glm5_2_debugmodel_fsdp2_tp4_npu():
+def glm5_tp2():
     return glm5_2_debugmodel_npu(
         parallelism=ParallelismConfig(
-            data_parallel_shard_degree=2,
-            tensor_parallel_degree=4,
-            expert_parallel_degree=4,
+            tensor_parallel_degree=2,
+            expert_parallel_degree=2,
         )
     )
 ```
 
-然后使用 TorchTitan 官方启动入口运行 8 卡 FSDP2 + TP4 + SP + EP4：
+启动时设置 `NGPU=2` 并选择对应模块和配置。MoE 配置中的 EP 度数须满足上游 TP/EP
+约束。MLA 的升维权重按 head 切分，输出使用上游 row-parallel projection。Indexer
+在 TP 维复制，KL 教师分布使用全部 attention heads。CP 收集共享 KV，按文档和本地
+query 区间生成 TND 元数据；CP 重排和 padding 不得改变文档隔离或因果关系。
+
+Recipe 保留可配置的 activation checkpoint，不强制清除调用方选择的重计算策略。
+融合算子的图编译和各并行组合需分别验证，短程训练通过不代表长期收敛或所有拓扑通过。
+
+## Ascend 融合算子
+
+| 环节 | TorchNPU 接口 |
+|---|---|
+| Indexer 选择 | `npu_lightning_indexer` |
+| 稀疏 attention | `npu_sparse_flash_attention` |
+| 128 维 NoPE warmup 的 indexer 统计量和 KL | `npu_dense_lightning_indexer_softmax_lse`、`npu_dense_lightning_indexer_grad_kl_loss` |
+| Sparse 阶段及 192 维 NoPE warmup 的 indexer KL | `npu_sparse_lightning_indexer_grad_kl_loss` |
+
+MLA 使用吸收形式：将 K 的升维权重作用到 query，将 V 的升维权重作用到 attention
+输出，保持原有 attention scale 和 checkpoint 权重结构。Indexer 的缩放合入 mixing
+weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention BlockMask，也不
+保留本地 DSA eager 计算后端。
+
+当前固定 CANN 栈的约束：
+
+- 硬件为 Ascend 910B / Atlas A2 或 Ascend 910_93 / Atlas A3。
+- latent KV 维度为 512，RoPE 维度为 64，indexer head dim 为 128。
+- Indexer KL 使用 32、64 或 128 个全局 attention heads，以及 8、16、32 或 64 个
+  indexer heads。TP 局部 head 数不作为完整教师分布。
+- Dense KL 的主 Q/K 内容维度为 128。GLM released 配置的 192 维 NoPE warmup
+  使用全部因果 key 的融合 sparse attention/KL，表达稠密目标。当前两条 warmup
+  路径都受全 key 选择宽度限制，每个文档最多 8192 tokens。
+- Sparse KL 所需的索引宽度按算子支持值补齐 `-1`，不改变模型实际选择的 top-k。
+- Packed-document 元数据表达有效 token 和累计序列长度；padding query 的输出为零。
+
+接口规格见 [OpPlugin 文档](https://gitcode.com/Ascend/op-plugin/tree/master/docs/zh/custom_APIs/torch_npu)。
+固定栈的实际前后向验证优先于其他版本接口文档中的能力说明。
+
+ComplexRoPE 使用已有的 `npu_rotary_mul` override。GLM recipe 的 DTensor
+truncated-normal initializer 兼容实现保留在 `torchtitan_ascend/overrides/glm5.py`，
+只改写自身 config；其准入和移除要求见 [runtime patches 文档](../../torchtitan_ascend/patches/README.md)。
+
+## 验证
+
+CPU 检查覆盖配置、checkpoint roundtrip、文档边界、padding 和 CP 重排元数据：
 
 ```bash
-cd "$TORCHTITAN_SRC"
-ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NGPU=8 \
-    ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=glm5_topology CONFIG=glm5_2_debugmodel_fsdp2_tp4_npu \
-    ./run_train.sh
+python -m pytest -q tests/test_glm5_model_config.py tests/test_glm5_state_dict_adapter.py \
+    tests/test_glm5_dsa.py tests/test_glm5_fixes.py -m "not npu"
 ```
 
-其他拓扑按表格设置 `ParallelismConfig` 中的 `data_parallel_replicate_degree`、
-`data_parallel_shard_degree`、`tensor_parallel_degree`、
-`context_parallel_degree`、`pipeline_parallel_degree` 和
-`expert_parallel_degree`。`NGPU` 等于 DP replicate、DP shard、TP、CP 和 PP 度数的
-乘积；EP 在该设备网格上划分专家，不再额外乘入 `NGPU`。
+在已安装固定依赖且可访问 Ascend NPU 的环境运行融合 attention 和 dense/sparse KL
+的 loss、梯度对照：
 
-## 精度对齐
+```bash
+python -m pytest -q tests/test_glm5_dsa.py -m npu
+```
 
-GLM-5.2 debug model 使用 BF16 eager、上下文长度 128、每步 8192 tokens 和 seed 61。
-CUDA reference 与 NPU candidate 使用相同 fixture，各拓扑完成 500 个严格对齐 step；loss
-差值为 `NPU - GPU`。
+从 TorchTitan 源码目录运行完整模型短程训练测试：
 
-| 拓扑 | steps | GPU final loss | NPU final loss | final diff | mean abs diff | max abs diff | mean rel error | max rel error |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `single` | 500 | 2.561436 | 2.551692 | -0.009744 | 0.008077 | 0.032962 | 0.299196% | 1.180570% |
-| `ddp2` | 500 | 2.560761 | 2.556582 | -0.004179 | 0.006863 | 0.029731 | 0.254237% | 1.138627% |
-| `ddp8` | 500 | 2.562466 | 2.558473 | -0.003993 | 0.006372 | 0.020852 | 0.235024% | 0.705714% |
-| `fsdp8` | 500 | 2.554454 | 2.550097 | -0.004357 | 0.005108 | 0.028708 | 0.187740% | 1.052928% |
-| `hsdp2x4` | 500 | 2.549722 | 2.562037 | 0.012315 | 0.005511 | 0.021544 | 0.203145% | 0.808338% |
-| `hsdp4x2` | 500 | 2.539855 | 2.544791 | 0.004936 | 0.004446 | 0.027079 | 0.163891% | 0.898216% |
-| `tp8` | 500 | 2.545842 | 2.548984 | 0.003142 | 0.004311 | 0.019085 | 0.158397% | 0.661760% |
-| `cp2` | 500 | 2.558650 | 2.556951 | -0.001699 | 0.004701 | 0.027690 | 0.173289% | 0.999725% |
-| `cp4` | 500 | 2.560246 | 2.554687 | -0.005559 | 0.007164 | 0.023609 | 0.264935% | 0.864944% |
-| `cp8` | 500 | 2.550963 | 2.544420 | -0.006543 | 0.005006 | 0.028952 | 0.185188% | 1.089829% |
-| `pp8` | 500 | 2.519800 | 2.500758 | -0.019042 | 0.010461 | 0.033368 | 0.391709% | 1.288559% |
-| `ep8` | 500 | 2.558728 | 2.560805 | 0.002076 | 0.004944 | 0.024495 | 0.181653% | 0.923190% |
-| `fsdp2-tp4` | 500 | 2.546308 | 2.563389 | 0.017081 | 0.007982 | 0.044550 | 0.295235% | 1.475921% |
-| `fsdp2-cp4` | 500 | 2.546153 | 2.550308 | 0.004155 | 0.005145 | 0.030890 | 0.189206% | 1.014473% |
-| `tp2-cp4` | 500 | 2.546159 | 2.551347 | 0.005188 | 0.005919 | 0.026460 | 0.219574% | 1.034385% |
-| `fsdp4-tp2` | 500 | 2.558816 | 2.557643 | -0.001173 | 0.005555 | 0.024331 | 0.204831% | 0.879901% |
-| `fsdp2-pp4` | 500 | 2.505396 | 2.512713 | 0.007317 | 0.006704 | 0.031359 | 0.247639% | 1.076978% |
-| `fsdp2-tp2-pp2` | 500 | 2.507141 | 2.494877 | -0.012264 | 0.006131 | 0.045049 | 0.228384% | 1.502309% |
-| `fsdp2-tp4-ep8` | 500 | 2.536863 | 2.555841 | 0.018978 | 0.007502 | 0.031108 | 0.279143% | 1.214954% |
+```bash
+python -m pytest -q "$ASCEND_REPO/tests/test_glm5.py"
+```
 
-19 个拓扑的 loss mean relative error 为 `0.158397%–0.391709%`，max relative error
-为 `0.661760%–1.502309%`。
+这些测试验证短程前后向和参数更新，不作为 released 模型精度或长期收敛结论。

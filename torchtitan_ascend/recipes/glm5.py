@@ -15,25 +15,35 @@ from torchtitan.models.common.config_utils import decoder_vocab_size, DEFAULT_DE
 from torchtitan.observability.metrics import MetricsProcessor
 from torchtitan.trainer import Trainer
 
-from torchtitan_ascend.config.override_utils import add_override
 from torchtitan_ascend.models.glm5 import build_model_config, MTPLoss
 
 
-def npu_changes(config: Trainer.Config) -> None:
-    """Apply the Ascend-specific differences to a GLM-5 recipe."""
+def npu_changes(config: Trainer.Config, *, stage: str = "sparse", indexer_loss_coeff: float = 1.0) -> None:
+    """Select the complete GLM NPU attention implementation before model build."""
     from torchtitan_ascend.overrides.glm5 import replace_trunc_normal_initializers
-    from torchtitan_ascend.overrides.rope import npu_complex_rope
 
-    add_override(config, npu_complex_rope)
+    if stage not in ("frozen", "warmup", "sparse"):
+        raise ValueError("GLM indexer stage must be frozen, warmup or sparse")
+    if indexer_loss_coeff < 0:
+        raise ValueError("GLM indexer_loss_coeff must be non-negative")
+    config.model.indexer_training_stage = stage
+    config.override.imports = [
+        *config.override.imports,
+        (
+            "torchtitan_ascend.overrides.glm5_dsa.npu_glm5_dsa",
+            {"stage": stage, "indexer_loss_coeff": indexer_loss_coeff},
+        ),
+    ]
     replace_trunc_normal_initializers(config.model)
     config.model.local_compile_regions = []
-    config.activation_checkpoint = None
 
 
 def _glm5_debugmodel_npu(
     seq_len: int = DEFAULT_DEBUG_MODEL_SEQ_LEN,
     *,
     parallelism: ParallelismConfig | None = None,
+    indexer_stage: str = "sparse",
+    indexer_loss_coeff: float = 1.0,
     flavor: str = "glm5_2_debugmodel",
     mtp_scale: float | None = None,
 ) -> Trainer.Config:
@@ -87,7 +97,7 @@ def _glm5_debugmodel_npu(
         checkpointer=None,
         activation_checkpoint=None,
     )
-    npu_changes(config)
+    npu_changes(config, stage=indexer_stage, indexer_loss_coeff=indexer_loss_coeff)
     return config
 
 
@@ -95,19 +105,27 @@ def glm5_2_debugmodel_npu(
     seq_len: int = 128,
     *,
     parallelism: ParallelismConfig | None = None,
+    indexer_stage: str = "sparse",
+    indexer_loss_coeff: float = 1.0,
 ) -> Trainer.Config:
     """Build the GLM-5.2 debug model for Ascend NPU."""
-    return _glm5_debugmodel_npu(seq_len=seq_len, parallelism=parallelism)
+    return _glm5_debugmodel_npu(
+        seq_len=seq_len, parallelism=parallelism, indexer_stage=indexer_stage, indexer_loss_coeff=indexer_loss_coeff
+    )
 
 
 def glm5_2_debugmodel_mtp_npu(
     seq_len: int = 128,
     *,
     parallelism: ParallelismConfig | None = None,
+    indexer_stage: str = "sparse",
+    indexer_loss_coeff: float = 1.0,
     mtp_scale: float = 0.3,
 ) -> Trainer.Config:
     """Build the GLM-5.2 debug model with one NextN/MTP block."""
     return _glm5_debugmodel_npu(
+        indexer_stage=indexer_stage,
+        indexer_loss_coeff=indexer_loss_coeff,
         seq_len=seq_len,
         parallelism=parallelism,
         flavor="glm5_2_debugmodel_mtp",
@@ -119,9 +137,13 @@ def glm5_2_scaled_debugmodel_npu(
     seq_len: int = 4096,
     *,
     parallelism: ParallelismConfig | None = None,
+    indexer_stage: str = "sparse",
+    indexer_loss_coeff: float = 1.0,
 ) -> Trainer.Config:
     """Build the scaled GLM-5.2 validation model for Ascend NPU."""
     return _glm5_debugmodel_npu(
+        indexer_stage=indexer_stage,
+        indexer_loss_coeff=indexer_loss_coeff,
         seq_len=seq_len,
         parallelism=parallelism,
         flavor="glm5_2_scaled_debugmodel",
@@ -132,9 +154,13 @@ def glm5_3_debugmodel_npu(
     seq_len: int = 128,
     *,
     parallelism: ParallelismConfig | None = None,
+    indexer_stage: str = "sparse",
+    indexer_loss_coeff: float = 1.0,
 ) -> Trainer.Config:
     """Build the GLM-5.3 debug model for Ascend NPU."""
     return _glm5_debugmodel_npu(
+        indexer_stage=indexer_stage,
+        indexer_loss_coeff=indexer_loss_coeff,
         seq_len=seq_len,
         parallelism=parallelism,
         flavor="glm5_3_debugmodel",
@@ -145,10 +171,14 @@ def glm5_3_debugmodel_mtp_npu(
     seq_len: int = 128,
     *,
     parallelism: ParallelismConfig | None = None,
+    indexer_stage: str = "sparse",
+    indexer_loss_coeff: float = 1.0,
     mtp_scale: float = 0.3,
 ) -> Trainer.Config:
     """Build the GLM-5.3 debug model with one NextN/MTP block."""
     return _glm5_debugmodel_npu(
+        indexer_stage=indexer_stage,
+        indexer_loss_coeff=indexer_loss_coeff,
         seq_len=seq_len,
         parallelism=parallelism,
         flavor="glm5_3_debugmodel_mtp",
@@ -160,9 +190,13 @@ def glm5_3_scaled_debugmodel_npu(
     seq_len: int = 4096,
     *,
     parallelism: ParallelismConfig | None = None,
+    indexer_stage: str = "sparse",
+    indexer_loss_coeff: float = 1.0,
 ) -> Trainer.Config:
     """Build the scaled GLM-5.3 validation model for Ascend NPU."""
     return _glm5_debugmodel_npu(
+        indexer_stage=indexer_stage,
+        indexer_loss_coeff=indexer_loss_coeff,
         seq_len=seq_len,
         parallelism=parallelism,
         flavor="glm5_3_scaled_debugmodel",
@@ -173,6 +207,10 @@ def glm5_debugmodel_npu(
     seq_len: int = 128,
     *,
     parallelism: ParallelismConfig | None = None,
+    indexer_stage: str = "sparse",
+    indexer_loss_coeff: float = 1.0,
 ) -> Trainer.Config:
     """Build the GLM-5.2 debug model for backward compatibility."""
-    return glm5_2_debugmodel_npu(seq_len, parallelism=parallelism)
+    return glm5_2_debugmodel_npu(
+        seq_len, parallelism=parallelism, indexer_stage=indexer_stage, indexer_loss_coeff=indexer_loss_coeff
+    )

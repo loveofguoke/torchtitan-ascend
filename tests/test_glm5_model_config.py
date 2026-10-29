@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
@@ -15,7 +16,7 @@ from torchtitan.models.common.config_utils import DEFAULT_DEBUG_MODEL_SEQ_LEN
 from torchtitan.models.common.moe import MoE
 from torchtitan.models.utils import get_nparams_and_active_nparams
 from torchtitan_ascend.models.glm5 import build_model_config, MODEL_FLAVORS
-from torchtitan_ascend.models.glm5.dsa import Glm5AllGatherKVFlexAttention, Glm5FlexAttention
+from torchtitan_ascend.models.glm5.dsa import DsaAttention
 from torchtitan_ascend.models.glm5.model import Glm5Attention
 from torchtitan_ascend.models.glm5.mtp import Glm5MTPTransformerBlock
 
@@ -192,36 +193,14 @@ class TestGlm5Config(unittest.TestCase):
             (nparams, expected_flops),
         )
 
-    def test_cp_selects_official_kv_all_gather_attention(self) -> None:
-        eager_config = build_model_config(
-            "debugmodel",
-            parallelism=ParallelismConfig(),
-            seq_len=128,
-        )
-        cp_config = build_model_config(
-            "debugmodel",
+    def test_cp_selects_backend_metadata_contract(self) -> None:
+        config = build_model_config(
+            "glm5_2_debugmodel",
             parallelism=ParallelismConfig(context_parallel_degree=2),
             seq_len=128,
         )
-        self.assertIsInstance(
-            eager_config.layers[0].attention.inner_attention,
-            Glm5FlexAttention.Config,
-        )
-        self.assertIsInstance(
-            cp_config.layers[0].attention.inner_attention,
-            Glm5AllGatherKVFlexAttention.Config,
-        )
-        sharding_config = cp_config.layers[0].attention.inner_attention.sharding_config
-        self.assertEqual(
-            set(sharding_config.in_dst_shardings or {}),
-            {
-                "q_THK",
-                "k_THK",
-                "v_THV",
-                "attention_masks",
-                "topk_indices_QS",
-            },
-        )
+        self.assertIsInstance(config.layers[0].attention.inner_attention, DsaAttention.Config)
+        self.assertTrue(config.layers[0].attention.inner_attention.enable_cp)
 
     def test_shared_indexer_layers_do_not_own_redundant_parameters(self) -> None:
         config = build_model_config(

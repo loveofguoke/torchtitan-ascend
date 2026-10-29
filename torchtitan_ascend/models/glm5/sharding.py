@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
@@ -11,11 +12,13 @@ from spmd_types import SpmdType
 
 from torchtitan.distributed.parallelism_context import MeshAxisName
 from torchtitan.models.common.decoder_sharding import (
+    colwise_config,
     dense_activation_placement,
     dense_param_placement,
     dense_sequence_parallel_placement,
     norm_config,
     pre_lm_head_norm_config,
+    rowwise_config,
     set_decoder_sharding_config,
     set_dense_ffn_sharding,
     token_id_placement,
@@ -91,87 +94,18 @@ def mtp_block_sharding_config(*, enable_sp: bool) -> ShardingConfig | None:
     )
 
 
-def dsa_mask_placement() -> SpmdType:
-    """Placement for a dense ``(1, query, key)`` legality mask."""
-    return SpmdType(
-        {DP: spmd.V, CP: spmd.V, TP: spmd.R},
-        partition_spec=spmd.PartitionSpec(None, (DP, CP), None),
-    )
-
-
 def glm5_attention_sharding_config(*, enable_sp: bool) -> ShardingConfig:
-    """Keep a GLM attention block on the decoder residual layout."""
+    """Upstream MLA's external residual contract; forward owns TP gathering."""
     residual = residual_activation_placement(enable_sp=enable_sp)
-    attention = dense_activation_placement(tp=spmd.R, cp=spmd.S(0))
-    positions = token_id_placement()
     return ShardingConfig(
-        in_src_shardings={"x_TD": residual, "positions": positions},
-        in_dst_shardings={"x_TD": attention, "positions": positions},
-        out_src_shardings=attention,
-        out_dst_shardings=residual,
-    )
-
-
-def glm5_inner_attention_sharding_config() -> ShardingConfig:
-    """Localize head-sharded DSA tensors at the FlexAttention boundary."""
-    attention = dense_activation_placement(tp=spmd.S(1), cp=spmd.S(0))
-    metadata = dsa_mask_placement()
-    indices = dense_activation_placement(tp=spmd.R, cp=spmd.S(0))
-    return ShardingConfig(
-        in_src_shardings={
-            "q_THK": attention,
-            "k_THK": attention,
-            "v_THV": attention,
-            "attention_masks": metadata,
-            "topk_indices_QS": indices,
-        },
-        in_dst_shardings={
-            "q_THK": attention,
-            "k_THK": attention,
-            "v_THV": attention,
-            "attention_masks": metadata,
-            "topk_indices_QS": indices,
-        },
-        out_src_shardings=attention,
-        out_dst_shardings=attention,
-        local_spmd=True,
+        in_src_shardings={"x_TD": residual, "positions": token_id_placement()},
+        out_src_shardings=residual,
     )
 
 
 def glm5_indexer_sharding_config() -> ShardingConfig:
-    """Replicate indexer features on TP before the discrete top-k."""
-    activation = dense_activation_placement(tp=spmd.R, cp=spmd.S(0))
-    return ShardingConfig(
-        in_src_shardings={
-            "hidden_states_TD": activation,
-            "q_resid_TR": activation,
-            "positions_T": token_id_placement(),
-            "attention_mask_TK": activation,
-        },
-        in_dst_shardings={
-            "hidden_states_TD": activation,
-            "q_resid_TR": activation,
-            "positions_T": token_id_placement(),
-            "attention_mask_TK": activation,
-        },
-        out_src_shardings=activation,
-    )
-
-
-def glm5_indexer_topk_sharding_config() -> ShardingConfig:
-    """Run top-k on TP-replicated scores and CP-local queries."""
-    query = dense_activation_placement(tp=spmd.R, cp=spmd.S(0))
-    key = dense_activation_placement(tp=spmd.R, cp=spmd.R)
-    return ShardingConfig(
-        in_src_shardings={
-            "q_QNH": query,
-            "k_KH": key,
-            "weights_QN": query,
-            "attention_mask_QK": query,
-        },
-        out_src_shardings=query,
-        local_spmd=True,
-    )
+    """Indexer projections stay replicated over TP."""
+    return ShardingConfig()
 
 
 def replicated_weight_sharding_config(*, bias: bool = False) -> ShardingConfig:
@@ -196,6 +130,10 @@ def set_glm5_sharding_config(
         layer.attention_norm.sharding_config = norm
         layer.ffn_norm.sharding_config = norm
         layer.attention.sharding_config = glm5_attention_sharding_config(enable_sp=enable_sp)
+        replicated = dense_activation_placement(tp=spmd.R, cp=spmd.S(0))
+        layer.attention.wq_b.sharding_config = colwise_config(input_layout=replicated)
+        layer.attention.wkv_b.sharding_config = colwise_config(input_layout=replicated)
+        layer.attention.wo.sharding_config = rowwise_config(output_layout=activation)
         if layer.feed_forward is not None:
             set_dense_ffn_sharding(
                 layer.feed_forward,

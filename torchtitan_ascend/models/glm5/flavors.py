@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
@@ -15,7 +16,6 @@ import dataclasses
 from collections.abc import Callable
 from functools import partial
 
-import torch
 import torch.nn as nn
 
 from torchtitan.config.parallelism import ParallelismConfig
@@ -27,19 +27,18 @@ from torchtitan.models.common.config_utils import (
     make_routed_experts_config,
     make_shared_expert_ffn_config,
 )
-from torchtitan.models.common.moe import TokenChoiceTopKRouter
+from torchtitan.models.common.linear import RowParallelLinear
 from torchtitan.models.common.moe_sharding import _router_gate_sharding_config, _router_sharding_config
 from torchtitan.models.common.param_init import depth_scaled_std
+from torchtitan.models.deepseek_v3.moe import DeepSeekV3Router
 
-from .dsa import DSAIndexerTopK, Glm5AllGatherKVFlexAttention, Glm5DsaIndexer, Glm5FlexAttention
+from .dsa import DsaAttention, DsaCPAttention, Glm5DsaIndexer
 
 from .model import Glm5Attention, Glm5Model, Glm5TransformerBlock
 from .mtp import Glm5MTPTransformerBlock
 from .sharding import (
     glm5_attention_sharding_config,
     glm5_indexer_sharding_config,
-    glm5_indexer_topk_sharding_config,
-    glm5_inner_attention_sharding_config,
     lm_head_sharding_config,
     mtp_block_sharding_config,
     mtp_projection_sharding_config,
@@ -51,10 +50,9 @@ from .sharding import (
 )
 
 
-DSAInnerAttention = Glm5FlexAttention
+DSAInnerAttention = DsaAttention
 
 __all__ = [
-    "DSAIndexerTopK",
     "DSAInnerAttention",
     "Glm5Attention",
     "Glm5DsaIndexer",
@@ -152,37 +150,6 @@ def _depth_experts_init(layer_id: int) -> dict[str, Callable]:
     }
 
 
-class Glm5Router(TokenChoiceTopKRouter):
-    """GLM group-limited sigmoid router."""
-
-    @dataclasses.dataclass(kw_only=True, slots=True)
-    class Config(TokenChoiceTopKRouter.Config):
-        num_expert_groups: int
-        num_limited_groups: int
-
-    def __init__(self, config: Config):
-        super().__init__(config)
-        self.num_expert_groups = config.num_expert_groups
-        self.num_limited_groups = config.num_limited_groups
-
-    def _select_experts(
-        self,
-        scores_TE: torch.Tensor,
-        expert_bias_E: torch.Tensor | None = None,
-        **router_kwargs,
-    ) -> torch.Tensor:
-        del router_kwargs
-        experts_per_group = self.num_experts // self.num_expert_groups
-        choice_scores_TE = scores_TE if expert_bias_E is None else scores_TE + expert_bias_E
-        choice_scores_TGP = choice_scores_TE.unflatten(-1, (self.num_expert_groups, experts_per_group))
-        group_scores_TG = choice_scores_TGP.topk(2, dim=-1).values.sum(dim=-1)
-        selected_groups_TL = group_scores_TG.topk(self.num_limited_groups, dim=-1, sorted=False).indices
-        excluded_groups_TG = torch.ones_like(group_scores_TG, dtype=torch.bool)
-        excluded_groups_TG.scatter_(-1, selected_groups_TL, False)
-        choice_scores_TE = choice_scores_TGP.masked_fill(excluded_groups_TG.unsqueeze(-1), float("-inf")).flatten(-2)
-        return choice_scores_TE.topk(self.top_k, dim=-1, sorted=False).indices
-
-
 def make_glm5_router_config(
     *,
     dim: int,
@@ -192,9 +159,9 @@ def make_glm5_router_config(
     num_limited_groups: int,
     route_scale: float,
     gate_param_init: dict[str, Callable],
-) -> Glm5Router.Config:
+) -> DeepSeekV3Router.Config:
     """Build GLM's sigmoid group-limited router using shared components."""
-    return Glm5Router.Config(
+    return DeepSeekV3Router.Config(
         num_experts=num_experts,
         gate=RouterGateLinear.Config(
             in_features=dim,
@@ -241,6 +208,7 @@ def make_glm5_attention_config(
     qk_head_dim = qk_nope_head_dim + qk_rope_head_dim
     return Glm5Attention.Config(
         dim=dim,
+        index_topk=index_topk,
         n_heads=n_heads,
         q_lora_rank=q_lora_rank,
         kv_lora_rank=kv_lora_rank,
@@ -283,7 +251,7 @@ def make_glm5_attention_config(
             param_init=_LINEAR_INIT,
             sharding_config=replicated_state_sharding_config("weight", "bias"),
         ),
-        wo=Linear.Config(
+        wo=RowParallelLinear.Config(
             in_features=n_heads * v_head_dim,
             out_features=dim,
             param_init=_depth_init(layer_id),
@@ -325,16 +293,11 @@ def make_glm5_attention_config(
                 rope,
                 sharding_config=rope_cache_sharding_config(),
             ),
-            topk=DSAIndexerTopK.Config(
-                index_topk=index_topk,
-                softmax_scale=index_head_dim**-0.5,
-                sharding_config=glm5_indexer_topk_sharding_config(),
-            ),
             sharding_config=glm5_indexer_sharding_config(),
         ),
-        inner_attention=(Glm5AllGatherKVFlexAttention.Config if enable_cp else Glm5FlexAttention.Config)(
+        inner_attention=(DsaCPAttention.Config if enable_cp else DsaAttention.Config)(
             attention_dropout=attention_dropout,
-            sharding_config=glm5_inner_attention_sharding_config(),
+            enable_cp=enable_cp,
         ),
         sharding_config=glm5_attention_sharding_config(enable_sp=enable_sp),
     )
@@ -482,7 +445,7 @@ def _debugmodel(
     dim = 256
     vocab_size = 2048
     rope = ComplexRoPE.Config(
-        dim=32,
+        dim=64,
         max_context_length=seq_len,
         theta=1_000_000,
         scaling="none",
@@ -519,12 +482,12 @@ def _debugmodel(
             index_sources=effective_index_sources,
             num_dense_layers=num_dense_layers,
             dim=dim,
-            n_heads=8,
+            n_heads=32,
             q_lora_rank=128,
-            kv_lora_rank=64,
-            qk_nope_head_dim=32,
-            qk_rope_head_dim=32,
-            v_head_dim=64,
+            kv_lora_rank=512,
+            qk_nope_head_dim=128,
+            qk_rope_head_dim=64,
+            v_head_dim=128,
             dense_hidden_dim=1024,
             moe_hidden_dim=256,
             num_experts=8,
@@ -533,9 +496,9 @@ def _debugmodel(
             router_num_expert_groups=1,
             router_num_limited_groups=1,
             router_route_scale=2.5,
-            index_n_heads=4,
-            index_head_dim=64,
-            index_topk=8,
+            index_n_heads=8,
+            index_head_dim=128,
+            index_topk=2048,
             attention_dropout=0.0,
             rope=rope,
             enable_sp=bool(parallelism and parallelism.enable_sequence_parallel),
@@ -675,9 +638,9 @@ def _glm5_2_scaled_debugmodel(
             index_sources=index_sources,
             num_dense_layers=3,
             dim=dim,
-            n_heads=8,
+            n_heads=32,
             q_lora_rank=384,
-            kv_lora_rank=192,
+            kv_lora_rank=512,
             qk_nope_head_dim=192,
             qk_rope_head_dim=64,
             v_head_dim=256,
@@ -852,7 +815,6 @@ def build_model_config(
         raise ValueError(
             f"Requested seq_len {context_len} exceeds max context length " f"{max_context_len} for flavor {flavor}"
         )
-    return get_config(
-        seq_len=context_len,
-        parallelism=parallelism,
-    )
+    config = get_config(seq_len=context_len, parallelism=parallelism)
+    config.set_sharding_(parallelism)
+    return config
