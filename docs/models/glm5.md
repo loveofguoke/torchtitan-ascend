@@ -130,9 +130,8 @@ weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention B
 接口规格见 [OpPlugin 文档](https://gitcode.com/Ascend/op-plugin/tree/master/docs/zh/custom_APIs/torch_npu)。
 固定栈的实际前后向验证优先于其他版本接口文档中的能力说明。
 
-ComplexRoPE 使用已有的 `npu_rotary_mul` override。GLM recipe 的 DTensor
-truncated-normal initializer 兼容实现保留在 `torchtitan_ascend/overrides/glm5.py`，
-只改写自身 config；其准入和移除要求见 [runtime patches 文档](../../torchtitan_ascend/patches/README.md)。
+ComplexRoPE 使用已有的 `npu_rotary_mul` override。参数初始化沿用上游
+`torch.nn.init.trunc_normal_` 等配置。
 
 ## 验证
 
@@ -140,7 +139,7 @@ CPU 检查覆盖配置、checkpoint roundtrip、文档边界、padding 和 CP �
 
 ```bash
 python -m pytest -q tests/test_glm5_model_config.py tests/test_glm5_state_dict_adapter.py \
-    tests/test_glm5_dsa.py tests/test_glm5_fixes.py -m "not npu"
+    tests/test_glm5_dsa.py -m "not npu"
 ```
 
 在已安装固定依赖且可访问 Ascend NPU 的环境运行融合 attention 和 dense/sparse KL

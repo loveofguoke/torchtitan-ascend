@@ -20,8 +20,6 @@ from torchtitan_ascend.models.glm5 import build_model_config, MTPLoss
 
 def npu_changes(config: Trainer.Config, *, stage: str = "sparse", indexer_loss_coeff: float = 1.0) -> None:
     """Select the complete GLM NPU attention implementation before model build."""
-    from torchtitan_ascend.overrides.glm5 import replace_trunc_normal_initializers
-
     if stage not in ("frozen", "warmup", "sparse"):
         raise ValueError("GLM indexer stage must be frozen, warmup or sparse")
     if indexer_loss_coeff < 0:
@@ -34,7 +32,6 @@ def npu_changes(config: Trainer.Config, *, stage: str = "sparse", indexer_loss_c
             {"stage": stage, "indexer_loss_coeff": indexer_loss_coeff},
         ),
     ]
-    replace_trunc_normal_initializers(config.model)
     config.model.local_compile_regions = []
 
 

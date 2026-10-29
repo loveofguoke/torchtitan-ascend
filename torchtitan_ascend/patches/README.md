@@ -29,8 +29,3 @@
 
 运行时修复只接受已经复现、无法通过 TorchTitan 公共配置或 override 精确表达的问题。每项
 修复必须保留触发条件、数学等价性测试、验证软件栈和移除条件。
-
-GLM DTensor truncated-normal 不放在本目录：它不替换 TorchTitan 或 PyTorch 的共享运行时方法，
-而是由 GLM recipe 显式改写自身 config 中的 initializer，因此位于
-`torchtitan_ascend/overrides/glm5.py`。将其注册成全局 `torch.nn.init.trunc_normal_` patch 会影响
-无关模型，扩大 blast radius。

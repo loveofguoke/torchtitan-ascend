@@ -10,7 +10,6 @@ import torch.distributed as dist
 
 from torchtitan.protocols.module import Module
 from torchtitan_ascend import setup
-from torchtitan_ascend.overrides.glm5 import npu_safe_trunc_normal_
 from torchtitan_ascend.recipes.glm5 import (
     glm5_2_debugmodel_mtp_npu,
     glm5_2_debugmodel_npu,
@@ -33,7 +32,7 @@ def test_glm5_debugmodel_npu_config(recipe):
     assert config.training.steps == 10
     assert any(entry[0] == "torchtitan_ascend.overrides.glm5_dsa.npu_glm5_dsa" for entry in config.override.imports)
     assert any(
-        isinstance(initializer, partial) and initializer.func is npu_safe_trunc_normal_
+        isinstance(initializer, partial) and initializer.func is torch.nn.init.trunc_normal_
         for _, module_config, _, _ in config.model.traverse(Module.Config, recurse=True)
         for initializer in (module_config.param_init or {}).values()
     )
