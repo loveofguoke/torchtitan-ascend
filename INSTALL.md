@@ -26,6 +26,7 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 export ASCEND_REPO="$(pwd)"
 export TORCH_NPU_SRC=/absolute/path/to/torch_npu
+export TRITON_ASCEND_SRC=/absolute/path/to/triton-ascend
 export TORCHTITAN_SRC=/absolute/path/to/torchtitan
 export UV_OVERRIDE="$ASCEND_REPO/overrides.txt"
 export UV_CONSTRAINT="$ASCEND_REPO/constraints.txt"
@@ -51,15 +52,24 @@ MAX_JOBS=16 DISABLE_INSTALL_FXRT=TRUE DISABLE_RPC_FRAMEWORK=TRUE \
 uv pip install --no-deps dist/torch_npu-*.whl
 ```
 
-## 安装 Triton-Ascend
+## 构建 Triton-Ascend
+
+从稳定 tag [`v3.6.0`](https://github.com/triton-lang/triton-ascend/tree/v3.6.0)构建。详见该 tag 的[源码构建说明](https://github.com/triton-lang/triton-ascend/blob/v3.6.0/README_zh.md#源码安装)。
 
 ```bash
-python -m pip install --extra-index-url https://mirrors.huaweicloud.com/ascend/repos/pypi \
-    'triton-ascend==3.6.0' 'pybind11==3.1.0'
+uv pip install 'cmake>=3.20,<4.0' 'ninja>=1.11.1' wheel setuptools 'pybind11==3.1.0'
+git clone --branch v3.6.0 --single-branch \
+    https://github.com/triton-lang/triton-ascend.git "$TRITON_ASCEND_SRC"
+git -C "$TRITON_ASCEND_SRC" checkout --detach 97e8a2be1e46817c359f55c0e6464e49480d0b1f
+git -C "$TRITON_ASCEND_SRC" apply \
+    "$ASCEND_REPO/fixes/triton-ascend/TA-3-cxx20-launcher.patch" \
+    "$ASCEND_REPO/fixes/triton-ascend/zero-stride-store.patch"
 
-TRITON_BACKEND="$(python -c 'import triton.backends.ascend; print(triton.backends.ascend.__path__[0])')"
-git -C "$TRITON_BACKEND" apply -p4 \
-    "$ASCEND_REPO/fixes/triton-ascend/TA-3-cxx20-launcher.patch"
+cd "$TRITON_ASCEND_SRC"
+MAX_JOBS=16 TRITON_BUILD_WITH_CLANG_LLD=true TRITON_BUILD_PROTON=OFF \
+    TRITON_WHEEL_NAME=triton-ascend TRITON_APPEND_CMAKE_ARGS='-DTRITON_BUILD_UT=OFF' \
+    python setup.py bdist_wheel
+uv pip install --no-deps --force-reinstall dist/triton_ascend-*.whl
 ```
 
 ## 安装 TorchTitan 与扩展

@@ -16,7 +16,6 @@ STEPS = 20
 FIRST_STEP_RTOL = 0.005
 RTOL = 0.01
 NORM_RTOL = 0.05
-DETERMINISTIC_RTOL = 1e-6
 NGPU = 2
 
 
@@ -38,7 +37,7 @@ def read_metrics(path: str | Path) -> tuple[dict[int, float], dict[int, float]]:
 
 
 def compare_losses(reference, candidate, *, deterministic=False):
-    """Check baseline loss accuracy, or deterministic replay within a small relative tolerance."""
+    """Check baseline loss accuracy, or deterministic replay with zero error."""
     baseline, _ = read_metrics(reference)
     actual, _ = read_metrics(candidate)
     if deterministic:
@@ -46,14 +45,14 @@ def compare_losses(reference, candidate, *, deterministic=False):
             assert torch.isclose(
                 torch.tensor(actual[step], dtype=torch.float64),
                 torch.tensor(value, dtype=torch.float64),
-                rtol=DETERMINISTIC_RTOL,
+                rtol=0,
                 atol=0,
             ), (
                 f"deterministic loss mismatch at step {step}: "
-                f"baseline={value!r}, actual={actual[step]!r}, rtol={DETERMINISTIC_RTOL}, atol=0. "
+                f"baseline={value!r}, actual={actual[step]!r}"
                 f"Log: {candidate}"
             )
-        print(f"PASS: {STEPS}-step deterministic loss comparison, rtol={DETERMINISTIC_RTOL}, atol=0")
+        print(f"PASS: {STEPS}-step deterministic loss comparison, zero error")
         return
     errors = {step: abs(actual[step] - value) / value for step, value in baseline.items()}
     assert errors[1] < FIRST_STEP_RTOL, (
@@ -69,7 +68,7 @@ def compare_losses(reference, candidate, *, deterministic=False):
 
 
 def compare_norms(reference, candidate, *, exact=False):
-    """Require every norm within +/-5%, or a small relative tolerance for deterministic replay."""
+    """Require every norm within +/-5%, or zero error for deterministic replay."""
     _, baseline = read_metrics(reference)
     _, actual = read_metrics(candidate)
     for step, value in baseline.items():
@@ -77,7 +76,7 @@ def compare_norms(reference, candidate, *, exact=False):
             assert torch.isclose(
                 torch.tensor(actual[step], dtype=torch.float64),
                 torch.tensor(value, dtype=torch.float64),
-                rtol=DETERMINISTIC_RTOL,
+                rtol=0,
                 atol=0,
             ), (
                 f"deterministic grad norm mismatch at step {step}: "
@@ -97,7 +96,7 @@ def compare_norms(reference, candidate, *, exact=False):
             f"grad norm relative change at step {step}: {relative_change:+.6%} outside +/-{NORM_RTOL:.1%}; "
             f"baseline={value}, actual={actual[step]}. Log: {candidate}"
         )
-    criterion = f"rtol={DETERMINISTIC_RTOL}, atol=0" if exact else f"every step within +/-{NORM_RTOL:.1%}"
+    criterion = "zero error" if exact else f"every step within +/-{NORM_RTOL:.1%}"
     print(f"PASS: {STEPS}-step global grad norm comparison, {criterion}")
 
 
