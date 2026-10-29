@@ -5,12 +5,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import import_module
 
 import spmd_types as spmd
 import torch
 from torchtitan.config import derive, override
-from torchtitan.models.kimi_k3.kda import InnerKDA, KDAKernel
-from torchtitan.protocols.module import Module
+from torchtitan.models.base.module import Module
+from torchtitan.models.common.attention.kda import InnerKDA, KDAKernel
+from torchtitan.models.common.attention.linear_attention import LinearAttentionMetadata
 
 from torchtitan_ascend.device import require_device
 from torchtitan_ascend.models.common.linear_attention import causal_conv1d
@@ -324,6 +326,7 @@ class AscendKDAKernel(KDAKernel):
 
     def __init__(self, config: Config):
         require_device("Ascend950", feature="fla-npu KDA")
+        import_module("fla_npu")
         Module.__init__(self)
         self.lower_bound = config.lower_bound
 
@@ -394,6 +397,12 @@ class AscendInnerKDA(InnerKDA):
     class Config(InnerKDA.Config):
         pass
 
+    def __init__(self, config: Config):
+        require_device("Ascend950", feature="fla-npu KDA convolution")
+        Module.__init__(self)
+        self.head_dim = config.head_dim
+        self.kernel = config.kernel.build()
+
     def forward(
         self,
         query_TC: torch.Tensor,
@@ -407,24 +416,28 @@ class AscendInnerKDA(InnerKDA):
         A_log_H: torch.Tensor,
         dt_bias_HK: torch.Tensor,
         *,
-        cu_seqlens: torch.Tensor | None,
+        attention_metadata: LinearAttentionMetadata | None,
     ) -> torch.Tensor:
-        mixed_qkv_TC = torch.cat((query_TC, key_TC, value_TC), dim=-1)
-        conv_weight_C1W = torch.cat((conv_q_weight_C1W, conv_k_weight_C1W, conv_v_weight_C1W), dim=0)
-        conv_output_BTC = causal_conv1d(mixed_qkv_TC, conv_weight_C1W, cu_seqlens).unsqueeze(0)
-        q_BTC, k_BTC, v_BTC = conv_output_BTC.chunk(3, dim=-1)
-        q_BTNK, k_BTNK, v_BTNV = (tensor.unflatten(-1, (-1, self.head_dim)) for tensor in (q_BTC, k_BTC, v_BTC))
-        output_BTNV = self.kernel(
-            q_BTNK,
-            k_BTNK,
-            v_BTNV,
-            raw_gate_THK.unsqueeze(0),
-            raw_beta_TH.unsqueeze(0),
+        if attention_metadata is not None and type(attention_metadata) is not LinearAttentionMetadata:
+            raise NotImplementedError("fla-npu KDA does not support context-parallel attention metadata")
+        return super().forward(
+            query_TC,
+            key_TC,
+            value_TC,
+            raw_gate_THK,
+            raw_beta_TH,
+            conv_q_weight_C1W,
+            conv_k_weight_C1W,
+            conv_v_weight_C1W,
             A_log_H,
             dt_bias_HK,
-            cu_seqlens=cu_seqlens,
+            attention_metadata=attention_metadata,
         )
-        return output_BTNV.squeeze(0)
+
+    def short_convolution(self, qkv_1TC, conv_weight_C1W, initial_state=None, *, cu_seqlens, routing):
+        if initial_state is not None or routing is not None:
+            raise NotImplementedError("fla-npu KDA convolution does not support cached state or context parallelism")
+        return causal_conv1d(qkv_1TC.squeeze(0), conv_weight_C1W, cu_seqlens).unsqueeze(0)
 
 
 @override(

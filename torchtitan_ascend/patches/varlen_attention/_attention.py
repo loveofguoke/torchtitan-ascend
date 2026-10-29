@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Autograd and fake-tensor boundary for the temporary varlen_attn patch.
+"""Autograd and fake-tensor boundary for the NPU varlen_attn patch.
 
 Import only when applying the patch; no TorchTitan model imports are needed.
 """
@@ -14,15 +14,31 @@ _INT_MAX = 2147483647
 def _ends(cu, total, maximum):
     offsets = cu.cpu().tolist()
     lengths = [b - a for a, b in pairwise(offsets)]
-    if len(offsets) < 2 or offsets[0] != 0 or offsets[-1] != total or any(n <= 0 or n > maximum for n in lengths):
-        raise ValueError("NPU varlen_attn requires positive sequence lengths covering all tokens within max_q/max_k")
+    if len(offsets) < 2 or offsets[0] != 0 or offsets[-1] != total or any(n < 0 or n > maximum for n in lengths):
+        raise ValueError("NPU varlen_attn requires nondecreasing offsets covering all tokens within max_q/max_k")
     return offsets[1:]
 
 
 def _sequence_ends(q, k, cu_q, cu_k, max_q, max_k):
     ends_q = _ends(cu_q, q.shape[0], max_q)
     ends_k = ends_q if cu_q is cu_k and q.shape[0] == k.shape[0] and max_q == max_k else _ends(cu_k, k.shape[0], max_k)
-    return ends_q, ends_k
+    if len(ends_q) != len(ends_k):
+        raise ValueError("NPU varlen_attn Q/K must have the same number of sequences")
+    # TorchTitan pads fixed-capacity metadata with empty document slots. Drop
+    # only paired empty Q/K documents, retaining every real boundary.
+    active_q, active_k = [], []
+    start_q = start_k = 0
+    for end_q, end_k in zip(ends_q, ends_k, strict=True):
+        empty_q, empty_k = end_q == start_q, end_k == start_k
+        if empty_q != empty_k:
+            raise NotImplementedError("NPU varlen_attn requires empty Q/K sequences to be paired")
+        if not empty_q:
+            active_q.append(end_q)
+            active_k.append(end_k)
+        start_q, start_k = end_q, end_k
+    if not active_q:
+        raise ValueError("NPU varlen_attn requires at least one non-empty sequence")
+    return active_q, active_k
 
 
 def _mask_args(q, left, right):
@@ -40,7 +56,7 @@ def _mask_args(q, left, right):
 
 
 def _lse(smax, ssum, heads, ends):
-    # Legacy TND softmax statistics are head-major within each document.
+    # TND softmax statistics are head-major within each document.
     values = smax.reshape(-1, 8)[:, 0] + ssum.reshape(-1, 8)[:, 0].log()
     pieces, start = [], 0
     for end in ends:
@@ -68,8 +84,6 @@ def attention(
     if not torch.backends.cuda.flash_sdp_enabled():
         raise NotImplementedError("NPU varlen_attn patch requires FLASH_ATTENTION enabled")
     ends_q, ends_k = _sequence_ends(q, k, cu_q, cu_k, max_q, max_k)
-    if len(ends_q) != len(ends_k):
-        raise ValueError("NPU varlen_attn Q/K must have the same number of sequences")
     out, smax, ssum, *_ = torch_npu.npu_fusion_attention(
         q,
         k,

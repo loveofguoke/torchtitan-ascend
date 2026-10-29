@@ -1,15 +1,28 @@
 # 安装补丁
 
-固定版本与安装命令见 [INSTALL.md](../INSTALL.md)，上游状态见 [补丁跟踪 Issue #4](https://gitcode.com/Ascend/torchtitan-ascend/issues/4)。训练入口自动安装 `torchtitan_ascend/patches/` 中的运行时修复。
+依赖版本与安装命令见 [INSTALL.md](../INSTALL.md)。运行时修复见 [`torchtitan_ascend/patches/`](../torchtitan_ascend/patches/README.md)。
 
-本目录仅存放固定依赖版本运行训练所必需、且无法由运行时修复覆盖的源码补丁，由安装指南显式应用。新增补丁须记录阻塞场景、适用版本和上游跟踪；仅保留必要的功能改动。升级到包含修复的依赖版本后，验证并移除对应补丁。
+## 应用补丁
+
+在包含各源码目录的工作目录中，于构建依赖前应用补丁：
+
+```bash
+git -C torch_npu apply ../torchtitan-ascend/fixes/torch_npu/storage.patch
+git -C triton-ascend apply \
+    ../torchtitan-ascend/fixes/triton-ascend/TA-3-cxx20-launcher.patch \
+    ../torchtitan-ascend/fixes/triton-ascend/zero-stride-store.patch
+```
+
+补丁应用后分别构建、安装 torch_npu 和 Triton-Ascend。
+
+## 补丁列表
 
 | 依赖 | 补丁 | 用途 |
 | --- | --- | --- |
-| torch_npu `2c8682df` | [storage.patch](torch_npu/storage.patch) | 支持 remat 使用的空指针、正逻辑大小、不可扩容的 storage 占位对象；跟踪 [!47944](https://gitcode.com/Ascend/pytorch/merge_requests/47944)。 |
+| torch_npu `1a25e6be` | [storage.patch](torch_npu/storage.patch) | 支持 remat 使用的空指针、正逻辑大小、不可扩容的 storage 占位对象；跟踪 [!47944](https://gitcode.com/Ascend/pytorch/merge_requests/47944)。 |
 | Triton-Ascend `3.6.0` | [TA-3-cxx20-launcher.patch](triton-ascend/TA-3-cxx20-launcher.patch) | 使用 C++20 编译 launcher，与 PyTorch 头文件一致；跟踪 [#1919](https://github.com/triton-lang/triton-ascend/pull/1919)。 |
-| Triton-Ascend `3.6.0` | [zero-stride-store.patch](triton-ascend/zero-stride-store.patch) | 修复 compiled BlockMask 的 `tt.store` 形状不一致：重建 store 时保留零步长 pointer 轴及对应 mask，保持 load 优化。跟踪 [#2783](https://github.com/triton-lang/triton-ascend/pull/2783) |
-| TorchTitan `edde21fb` | [optional-attn-gym-backends.patch](torchtitan/optional-attn-gym-backends.patch) | 允许未安装 Attention Gym 的 CUDA 后端时导入 GDN、KDA，并通过 override 使用 NPU 实现。 |
-| TorchTitan `edde21fb` | [entrypoint.patch](torchtitan/entrypoint.patch) | 回移上游已合入的 [#5277](https://github.com/pytorch/torchtitan/pull/5277) 中的 `ENTRYPOINT` 支持，使 `run_train.sh` 调用 Ascend 训练入口。 |
+| Triton-Ascend `3.6.0` | [zero-stride-store.patch](triton-ascend/zero-stride-store.patch) | 为 compiled BlockMask 的 store 保留零步长 pointer 轴和 mask，保持 pointer、value、mask 形状一致。跟踪 [#2783](https://github.com/triton-lang/triton-ascend/pull/2783)。 |
 
-TorchTitan 补丁不提供 Attention Gym reference 执行路径；调用缺失的 CUDA 后端仍会报错。
+## 维护
+
+本目录仅存放固定依赖版本运行训练所必需、且无法由运行时修复覆盖的源码补丁，由安装指南显式应用。补丁需列明适用版本、用途和上游跟踪。

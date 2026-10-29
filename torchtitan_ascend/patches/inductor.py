@@ -1,35 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Match TorchTitan's PyTorch version in the NPU Inductor backend.
-
-Remove when the supported torch_npu includes
-https://gitcode.com/Ascend/pytorch/merge_requests/45528.
-"""
+"""Adapt NPU scheduler capabilities and reduction interfaces."""
 
 import inspect
+from functools import wraps
 
 from torchtitan_ascend.patches import patch
 
 
 @patch(
     target="torch_npu._inductor.codegen.npu_combined_scheduling:NPUCombinedScheduling.__init__",
-    kind="replace",
+    kind="wrap",
     deferred=True,
 )
 def scheduling(original):
-    from torch._inductor.codegen.cuda_combined_scheduling import CUDACombinedScheduling
-    from torch_npu._inductor.codegen.npu_combined_scheduling import (
-        CATLASSScheduling,
-        NPUNoLinearTritonScheduling,
-        NPUTritonScheduling,
-    )
+    from torch_npu._inductor.codegen.npu_combined_scheduling import NPUTritonScheduling
 
-    NPUTritonScheduling.supports_sub_parent_epilogue = False
-
-    def initialize(self, scheduler):
-        CUDACombinedScheduling.__init__(self, scheduler)
-        self._nolinear_triton_scheduling = NPUNoLinearTritonScheduling(scheduler)
-        self._triton_scheduling = NPUTritonScheduling(scheduler)
-        self._catlass_scheduling = CATLASSScheduling(scheduler)
+    @wraps(original)
+    def initialize(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        NPUTritonScheduling.supports_sub_parent_epilogue = False
+        return result
 
     return initialize
 

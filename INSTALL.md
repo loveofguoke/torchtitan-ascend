@@ -2,100 +2,117 @@
 
 ## 环境要求
 
-Linux aarch64、Ascend NPU、CANN 9.2.0-beta.2、Python 3.12，以及支持 C++20 的编译器。
+- 硬件与系统：A5（Ascend 950）、Linux aarch64。
+- 软件：Python 3.12、CANN 9.2.0 及配套驱动和固件。
+- 构建工具：Git、支持 C++20 的编译器、Clang/LLD 和 zlib 开发库。
 
-| 组件 | 固定版本 |
+| 组件 | 版本 |
 |---|---|
-| PyTorch | `2.15.0.dev20261005+cpu` |
-| Torchvision | `0.30.0.dev20261005+cpu` |
-| torch_npu | `2c8682df9271e545e7f50f8c45e2395563a05483` |
+| PyTorch | `2.15.0+cpu` |
+| Torchvision | `0.29.2+cpu` |
+| torch_npu | `1a25e6bedae48ed57ad2e5c2486d7242d2cea305` |
 | Triton-Ascend | `3.6.0` |
-| TorchTitan | `edde21fb648d446fecb5b78ef42d8c432274b935` |
+| TorchTitan | `0.4.0`，提交 `45e33cd413b64cb37a7840cfd3c9765d3c639ae1` |
 
-以下命令在同一 shell 中依次执行。安装所需的源码修复存放于 [`fixes/`](fixes/README.md)，随对应依赖的安装步骤应用。
+A2 / A3 的兼容性状态见 [Issue #7](https://gitcode.com/Ascend/torchtitan-ascend/issues/7)，各模型的支持范围见[模型文档](README.md#模型文档)。
 
 ## 准备环境
 
-在本仓库根目录创建 Python 环境，并设置依赖源码目录：
+在同一工作目录中依次执行以下命令，源码分别放在 `torchtitan-ascend/`、`torch_npu/` 和 `torchtitan/`：
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
+git clone --branch refactor/npu-override https://gitcode.com/Ascend/torchtitan-ascend.git
+python3.12 -m venv torchtitan-ascend/.venv
+source torchtitan-ascend/.venv/bin/activate
 python -m pip install uv
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
-export ASCEND_REPO="$(pwd)"
-export TORCH_NPU_SRC=/absolute/path/to/torch_npu
-export TRITON_ASCEND_SRC=/absolute/path/to/triton-ascend
-export TORCHTITAN_SRC=/absolute/path/to/torchtitan
-export UV_OVERRIDE="$ASCEND_REPO/overrides.txt"
-export UV_CONSTRAINT="$ASCEND_REPO/constraints.txt"
+export UV_OVERRIDE="$(pwd)/torchtitan-ascend/overrides.txt"
+export UV_CONSTRAINT="$(pwd)/torchtitan-ascend/constraints.txt"
 export TORCH_DEVICE_BACKEND_AUTOLOAD=0
-
-uv pip install --index-url https://download.pytorch.org/whl/nightly/cpu \
-    'torch==2.15.0.dev20261005+cpu' 'torchvision==0.30.0.dev20261005+cpu'
 ```
 
-## 构建 torch_npu
+## 安装依赖
+
+### PyTorch
 
 ```bash
-git clone https://gitcode.com/Ascend/pytorch.git "$TORCH_NPU_SRC"
-git -C "$TORCH_NPU_SRC" checkout 2c8682df9271e545e7f50f8c45e2395563a05483
-git -C "$TORCH_NPU_SRC" submodule update --init --recursive
-git -C "$TORCH_NPU_SRC" apply "$ASCEND_REPO/fixes/torch_npu/storage.patch"
+uv pip install --index-url https://download.pytorch.org/whl/cpu \
+    'torch==2.15.0+cpu' 'torchvision==0.29.2+cpu'
+```
 
-cd "$TORCH_NPU_SRC"
-uv pip install pyyaml typing-extensions setuptools wheel cmake numpy ninja nanobind auditwheel
+### torch_npu
+
+```bash
+git clone https://gitcode.com/Ascend/pytorch.git torch_npu
+git -C torch_npu checkout 1a25e6bedae48ed57ad2e5c2486d7242d2cea305
+git -C torch_npu submodule update --init --recursive
+git -C torch_npu apply ../torchtitan-ascend/fixes/torch_npu/storage.patch
+
+cd torch_npu
+uv pip install pyyaml typing-extensions 'setuptools>=81.0.0' wheel cmake numpy ninja nanobind auditwheel
 mkdir -p build/packages
-MAX_JOBS=16 DISABLE_INSTALL_FXRT=TRUE DISABLE_RPC_FRAMEWORK=TRUE \
+TORCH_VERSION=2.15.0 MAX_JOBS=16 DISABLE_INSTALL_FXRT=TRUE DISABLE_RPC_FRAMEWORK=TRUE \
     python setup.py build bdist_wheel
 uv pip install --no-deps dist/torch_npu-*.whl
+cd ..
 ```
 
-## 构建 Triton-Ascend
-
-从稳定 tag [`v3.6.0`](https://github.com/triton-lang/triton-ascend/tree/v3.6.0)构建。详见该 tag 的[源码构建说明](https://github.com/triton-lang/triton-ascend/blob/v3.6.0/README_zh.md#源码安装)。
+### Triton-Ascend
 
 ```bash
+uv pip install --reinstall-package triton-ascend \
+    --extra-index-url https://mirrors.huaweicloud.com/ascend/repos/pypi \
+    'triton-ascend==3.6.0'
+export TRITON_ASCEND_BISHENGIR_PATH="$(python -c \
+    'import triton; print(triton.__path__[0] + "/backends/ascend/bishengir")')"
+test -x "$TRITON_ASCEND_BISHENGIR_PATH/bin/bishengir-compile"
+
 uv pip install 'cmake>=3.20,<4.0' 'ninja>=1.11.1' wheel setuptools 'pybind11==3.1.0'
 git clone --branch v3.6.0 --single-branch \
-    https://github.com/triton-lang/triton-ascend.git "$TRITON_ASCEND_SRC"
-git -C "$TRITON_ASCEND_SRC" checkout --detach 97e8a2be1e46817c359f55c0e6464e49480d0b1f
-git -C "$TRITON_ASCEND_SRC" apply \
-    "$ASCEND_REPO/fixes/triton-ascend/TA-3-cxx20-launcher.patch" \
-    "$ASCEND_REPO/fixes/triton-ascend/zero-stride-store.patch"
+    https://github.com/triton-lang/triton-ascend.git
+git -C triton-ascend checkout --detach 97e8a2be1e46817c359f55c0e6464e49480d0b1f
+git -C triton-ascend apply \
+    ../torchtitan-ascend/fixes/triton-ascend/TA-3-cxx20-launcher.patch \
+    ../torchtitan-ascend/fixes/triton-ascend/zero-stride-store.patch
 
-cd "$TRITON_ASCEND_SRC"
+cd triton-ascend
 MAX_JOBS=16 TRITON_BUILD_WITH_CLANG_LLD=true TRITON_BUILD_PROTON=OFF \
     TRITON_WHEEL_NAME=triton-ascend TRITON_APPEND_CMAKE_ARGS='-DTRITON_BUILD_UT=OFF' \
     python setup.py bdist_wheel
 uv pip install --no-deps --force-reinstall dist/triton_ascend-*.whl
+cd ..
 ```
 
-## 安装 TorchTitan 与扩展
+### TorchTitan
 
 ```bash
-git clone https://github.com/pytorch/torchtitan.git "$TORCHTITAN_SRC"
-git -C "$TORCHTITAN_SRC" checkout edde21fb648d446fecb5b78ef42d8c432274b935
-git -C "$TORCHTITAN_SRC" apply \
-    "$ASCEND_REPO/fixes/torchtitan/optional-attn-gym-backends.patch" \
-    "$ASCEND_REPO/fixes/torchtitan/entrypoint.patch"
-uv pip install -e "$TORCHTITAN_SRC" -e "$ASCEND_REPO"
+git clone https://github.com/pytorch/torchtitan.git
+git -C torchtitan checkout 45e33cd413b64cb37a7840cfd3c9765d3c639ae1
+```
+
+## 安装本项目
+
+```bash
+uv pip install -e torchtitan -e torchtitan-ascend
 uv pip check
 ```
 
-## 验证安装
+## 运行验证
 
-在 TorchTitan 源码目录运行 Qwen3 debug 配方，使用上游自带的 tokenizer 和 C4 测试数据：
+在上述工作目录中加载环境并启动单卡 Qwen3 debug 配方：
 
 ```bash
+source torchtitan-ascend/.venv/bin/activate
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
 export TORCH_DEVICE_BACKEND_AUTOLOAD=1
-cd "$TORCHTITAN_SRC"
+export PET_LOCAL_ADDR=127.0.0.1
+unset PYTORCH_NPU_ALLOC_CONF
+
+cd torchtitan
 ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
     MODULE=torchtitan_ascend.recipes.qwen3 CONFIG=qwen3_debugmodel_npu \
     ./run_train.sh
 ```
 
-训练应完成 10 步并正常退出。可追加 `--output-dir <路径>` 指定输出目录。
-
-新建 shell 后，重新激活该环境、加载 CANN，并设置「准备环境」中的路径及 uv 环境变量；训练时设置 `TORCH_DEVICE_BACKEND_AUTOLOAD=1`。模型专用依赖与启动配置见[模型文档](README.md#模型文档)。
+该配方使用内置 tokenizer 和测试数据，运行 10 步。其他模型的依赖、数据和启动方式见[模型文档](README.md#模型文档)。
