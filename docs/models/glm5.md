@@ -51,27 +51,21 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
   TorchNPU 2.14 nightly 与 CANN 9.1 组合：上游 rejection-sampling 路径在分片参数初始化时
   可能使各 rank 以不同次序进入 lazy HCCL subgroup，表现为初始化卡死。该实现只替换 GLM
   config 中的 DTensor initializer；普通 Tensor 继续调用 PyTorch 原实现。
-- TP vocabulary-parallel cross entropy 兼容实现用于上述已验证软件栈：上游布尔索引赋值在
-  NPU lowering 中会进入 `aclnnNonzeroV2` 失败。该实现保持跨 TP rank 的全局
-  log-softmax、MAX/SUM all-reduce 和 backward 数学不变，仅改用
-  `where/gather/scatter`；单卡及不含 TP 的拓扑不触发该 loss 路径。
 - DSA 使用 TorchTitan FlexAttention 接口表达动态 top-k 稀疏掩码；模型代码不固定 NPU
   attention 后端。
 - 完整模型实现暂存于本仓 `torchtitan_ascend.models.glm5`，仅调用固定 TorchTitan
   基线提供的模型配置、并行化、训练和 checkpoint 公共接口，不修改 TorchTitan 源码。
 
-上述两项分别属于 PyTorch DTensor 初始化与旧 TorchNPU/HCCL 组合、以及 TorchTitan 合法
-PyTorch 写法与旧 NPU lowering 的跨层兼容缺口，不是 GLM 模型数学修改，也不能归因于单一
-TorchTitan 组件。当前证据来自 Atlas A2 固定软件栈，因此它们是该已验证基线上的必要兼容
-实现，不代表 Ascend 950（A5）及后续 TorchNPU/CANN 永久需要相同 patch。A5 是否可删除必须
-在冻结设备、驱动、CANN、PyTorch 和 TorchNPU 版本后关闭对应 patch，分别验证参数初始化
-hash/统计量/首步 loss，以及 TP2/TP4 loss、logits 梯度和参数梯度；在这些 A/B 证据完成前
+上述初始化适配属于 PyTorch DTensor 初始化与旧 TorchNPU/HCCL 组合的跨层兼容缺口，
+不是 GLM 模型数学修改，也不能归因于单一 TorchTitan 组件。当前证据来自 Atlas A2 固定
+软件栈，因此它是该已验证基线上的必要兼容实现，不代表 Ascend 950（A5）及后续
+TorchNPU/CANN 永久需要相同适配。A5 是否可删除必须在冻结设备、驱动、CANN、PyTorch
+和 TorchNPU 版本后关闭对应适配，验证参数初始化 hash/统计量/首步 loss；在这些 A/B 证据完成前
 不按硬件名称猜测并删除。
 
-目录按作用范围选择：TP loss 替换 TorchTitan 共享运行时方法，注册在
-`torchtitan_ascend/patches/vocab_parallel_loss.py`；DTensor initializer 由 GLM recipe 显式
-改写自身 config，保留在 `torchtitan_ascend/overrides/glm5.py`。后者不注册成全局 PyTorch
-patch，以免影响 Qwen、Kimi 等无关模型。
+DTensor initializer 由 GLM recipe 显式改写自身 config，保留在
+`torchtitan_ascend/overrides/glm5.py`，不注册成全局 PyTorch patch，以免影响 Qwen、Kimi 等
+无关模型。
 
 ## 支持范围
 
