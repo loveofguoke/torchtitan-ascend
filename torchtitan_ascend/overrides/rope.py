@@ -128,16 +128,6 @@ class AscendComplexRoPE(ComplexRoPE):
         *,
         inverse: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        from torch.distributed.tensor import DTensor
-
-        query_local = query.to_local() if isinstance(query, DTensor) else query
-        if query_local.device.type != "npu":
-            return ComplexRoPE.apply_rotary_emb(
-                query,
-                key,
-                rope_cache,
-                inverse=inverse,
-            )
         return npu_apply_complex_rope(
             query,
             key,
