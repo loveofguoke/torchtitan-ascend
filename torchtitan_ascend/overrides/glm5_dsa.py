@@ -21,6 +21,8 @@ from torchtitan_ascend.models.glm5.dsa import DsaAttention, DsaMetadata, Glm5Dsa
 from torchtitan_ascend.models.glm5.model import Glm5Attention
 from torchtitan_ascend.overrides.rope import npu_complex_rope
 
+_SPARSE_KL_WIDTHS = tuple(range(1024, 8193, 1024))
+
 
 def _gather(tensor, axis, dim):
     group = spmd_mesh_group(axis)
@@ -96,9 +98,10 @@ class _IndexerKL(torch.autograd.Function):
                 **common,
             )
         else:
-            width = _sparse_kl_width(indices.shape[-1])
-            if width != indices.shape[-1]:
-                indices = torch.nn.functional.pad(indices, (0, width - indices.shape[-1]), value=-1)
+            # The kernel can mask a causal KV tail, but cannot represent an
+            # arbitrary smaller top-k by padding its selection with -1.
+            if indices.shape[-1] not in _SPARSE_KL_WIDTHS:
+                raise ValueError("CANN Sparse KL requires an index width of 1024..8192 in multiples of 1024")
             dqi, dki, dw, loss = torch_npu.npu_sparse_lightning_indexer_grad_kl_loss(
                 query,
                 key,
@@ -444,6 +447,10 @@ def npu_glm5_dsa(cfg, *, stage="sparse", indexer_loss_coeff=1.0):
         raise ValueError("DSA indexer_loss_coeff must be non-negative")
     if not (1 <= cfg.index_topk <= 2048 or cfg.index_topk in (3072, 4096, 5120, 6144, 7168, 8192)):
         raise ValueError("DSA top-k is outside the fixed CANN stack's supported range")
+    if stage == "sparse" and cfg.index_topk not in _SPARSE_KL_WIDTHS:
+        raise ValueError(
+            "Sparse indexer training requires index_topk=1024..8192 in multiples of 1024; padding is unsupported"
+        )
     indexer = cfg.indexer
     if indexer is not None:
         indexer = derive(

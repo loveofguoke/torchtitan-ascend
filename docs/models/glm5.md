@@ -128,7 +128,10 @@ weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention B
   对齐，不受 Sparse KL 的 8192 上限约束。GLM released 配置的 192 维 NoPE
   warmup 使用全部因果 key 的融合 sparse attention/KL，受 Sparse KL 选择宽度
   限制，每个文档最多 8192 tokens。
-- Sparse KL 所需的索引宽度按算子支持值补齐 `-1`，不改变模型实际选择的 top-k。
+- Sparse 阶段的 `index_topk` 必须是 1024 到 8192 之间的 1024 整数倍，直接使用
+  算子支持的选择宽度。不能将较小的 top-k 用 `-1` 补齐后交给 Sparse KL；这种
+  补齐不保持 loss 和梯度等价。因果边界以外的无效槽位仍使用 `-1`。
+- NPU scaled debug recipe 使用 `index_topk=1024`；普通 debug 和 released 配置使用 2048。
 - Packed-document 元数据表达有效 token 和累计序列长度；padding query 的输出为零。
 
 接口规格见 [OpPlugin 文档](https://gitcode.com/Ascend/op-plugin/tree/master/docs/zh/custom_APIs/torch_npu)。

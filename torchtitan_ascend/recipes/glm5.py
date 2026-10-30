@@ -42,6 +42,7 @@ def _glm5_debugmodel_npu(
     indexer_loss_coeff: float = 1.0,
     flavor: str = "glm5_2_debugmodel",
     mtp_scale: float | None = None,
+    index_topk: int | None = None,
 ) -> Trainer.Config:
     """Build a deterministic GLM-5 recipe and apply Ascend overrides."""
     if parallelism is None:
@@ -51,6 +52,9 @@ def _glm5_debugmodel_npu(
         parallelism=parallelism,
         seq_len=seq_len,
     )
+    if index_topk is not None:
+        for layer in model_config.layers:
+            layer.attention.index_topk = index_topk
     model_config.local_compile_regions = ["loss", "swiglu"]
     num_mtp_layers = len(model_config.mtp_layers or ())
     if mtp_scale is not None and num_mtp_layers == 0:
@@ -143,6 +147,7 @@ def glm5_2_scaled_debugmodel_npu(
         seq_len=seq_len,
         parallelism=parallelism,
         flavor="glm5_2_scaled_debugmodel",
+        index_topk=1024,
     )
 
 
@@ -196,6 +201,7 @@ def glm5_3_scaled_debugmodel_npu(
         seq_len=seq_len,
         parallelism=parallelism,
         flavor="glm5_3_scaled_debugmodel",
+        index_topk=1024,
     )
 
 

@@ -120,6 +120,7 @@ class TestGlm5Config(unittest.TestCase):
         self.assertEqual(len(debug.model.mtp_layers), 0)
         self.assertEqual(len(mtp.model.mtp_layers), 1)
         self.assertEqual(len(scaled.model.layers), 16)
+        self.assertTrue(all(layer.attention.index_topk == 1024 for layer in scaled.model.layers))
 
     def test_mtp_recipe_builds_one_prediction_depth(self) -> None:
         from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_mtp_npu
@@ -154,6 +155,22 @@ class TestGlm5Config(unittest.TestCase):
 
                     self.assertIs(config.activation_checkpoint, policy)
                     self.assertEqual(config.model.local_compile_regions, regions)
+
+    def test_sparse_training_rejects_padded_topk(self) -> None:
+        from torchtitan.config.override import apply_overrides
+        from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+
+        for stage in ("sparse", "warmup", "frozen"):
+            for topk in (8, 512, 1024, 1536, 2048, 3072, 8192):
+                with self.subTest(stage=stage, topk=topk):
+                    config = glm5_2_debugmodel_npu(indexer_stage=stage)
+                    config.model.layers[0].attention.index_topk = topk
+                    if stage == "sparse" and topk in (8, 512, 1536):
+                        with self.assertRaisesRegex(ValueError, "multiples of 1024; padding is unsupported"):
+                            apply_overrides(config.override, config)
+                    else:
+                        apply_overrides(config.override, config)
+                        self.assertEqual(config.model.layers[0].attention.index_topk, topk)
 
     def test_preprocess_inputs_matches_pinned_trainer_contract(self) -> None:
         config = build_model_config(
