@@ -8,6 +8,7 @@ import pytest
 import torch
 import torch.distributed as dist
 
+from torchtitan.distributed.activation_checkpoint import SelectiveAC
 from torchtitan.protocols.module import Module
 from torchtitan_ascend import setup
 from torchtitan_ascend.recipes.glm5 import (
@@ -25,8 +26,8 @@ from torchtitan_ascend.recipes.glm5 import (
 def test_glm5_debugmodel_npu_config(recipe):
     config = recipe()
 
-    assert config.model.local_compile_regions == []
-    assert config.activation_checkpoint is None
+    assert config.model.local_compile_regions == ["loss", "swiglu"]
+    assert isinstance(config.activation_checkpoint, SelectiveAC.Config)
     assert config.training.num_tokens_per_microbatch_per_dp_rank == 256
     assert config.training.max_context_length == 128
     assert config.training.steps == 10
@@ -50,15 +51,21 @@ def test_glm5_mtp_npu_config(recipe):
 
 
 @pytest.mark.parametrize(
-    "recipe,stage,checkpoint",
+    "recipe,stage,checkpoint,regions",
     [
-        (glm5_2_debugmodel_npu, "sparse", False),
-        (glm5_2_debugmodel_npu, "warmup", False),
-        (glm5_2_debugmodel_npu, "frozen", False),
-        (glm5_3_debugmodel_mtp_npu, "sparse", True),
+        (glm5_2_debugmodel_npu, "sparse", None, []),
+        (glm5_2_debugmodel_npu, "sparse", "selective", []),
+        (glm5_2_debugmodel_npu, "sparse", "full", []),
+        (glm5_2_debugmodel_npu, "sparse", "selective", ["loss"]),
+        (glm5_2_debugmodel_npu, "sparse", "selective", ["swiglu"]),
+        (glm5_2_debugmodel_npu, "sparse", "selective", ["loss", "swiglu"]),
+        (glm5_2_debugmodel_npu, "warmup", "selective", ["loss", "swiglu"]),
+        (glm5_2_debugmodel_npu, "frozen", "selective", ["loss", "swiglu"]),
+        (glm5_3_debugmodel_mtp_npu, "sparse", "selective", ["loss", "swiglu"]),
+        (glm5_3_debugmodel_mtp_npu, "sparse", "full", ["loss", "swiglu"]),
     ],
 )
-def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint):
+def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint, regions):
     if not hasattr(torch, "npu") or not torch.npu.is_available():
         pytest.skip("requires one visible Ascend NPU")
 
@@ -76,10 +83,15 @@ def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint):
 
     setup()
     config = recipe(seq_len=32, indexer_stage=stage)
-    if checkpoint:
+    if checkpoint == "full":
         from torchtitan.distributed.activation_checkpoint import FullAC
 
-        config.activation_checkpoint = FullAC.Config(preserve_rng_state=False)
+        config.activation_checkpoint = FullAC.Config()
+    elif checkpoint == "selective":
+        config.activation_checkpoint = SelectiveAC.Config()
+    else:
+        config.activation_checkpoint = None
+    config.model.local_compile_regions = regions
     config.dump_folder = str(tmp_path)
     config.debug.seed = 42
     config.training.steps = 2

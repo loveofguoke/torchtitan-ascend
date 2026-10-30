@@ -32,7 +32,6 @@ def npu_changes(config: Trainer.Config, *, stage: str = "sparse", indexer_loss_c
             {"stage": stage, "indexer_loss_coeff": indexer_loss_coeff},
         ),
     ]
-    config.model.local_compile_regions = []
 
 
 def _glm5_debugmodel_npu(
@@ -52,6 +51,7 @@ def _glm5_debugmodel_npu(
         parallelism=parallelism,
         seq_len=seq_len,
     )
+    model_config.local_compile_regions = ["loss", "swiglu"]
     num_mtp_layers = len(model_config.mtp_layers or ())
     if mtp_scale is not None and num_mtp_layers == 0:
         raise ValueError("mtp_scale may only be set for a GLM MTP flavor")
@@ -92,7 +92,6 @@ def _glm5_debugmodel_npu(
         ),
         parallelism=parallelism,
         checkpointer=None,
-        activation_checkpoint=None,
     )
     npu_changes(config, stage=indexer_stage, indexer_loss_coeff=indexer_loss_coeff)
     return config

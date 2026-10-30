@@ -139,6 +139,22 @@ class TestGlm5Config(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must be non-negative"):
             glm5_2_debugmodel_mtp_npu(mtp_scale=-0.1)
 
+    def test_npu_changes_preserves_execution_policies(self) -> None:
+        from torchtitan.distributed.activation_checkpoint import FullAC, SelectiveAC
+        from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu, npu_changes
+
+        for policy in (None, SelectiveAC.Config(), FullAC.Config()):
+            for regions in ([], ["loss"], ["swiglu"], ["loss", "swiglu"]):
+                with self.subTest(policy=type(policy).__qualname__, regions=regions):
+                    config = glm5_2_debugmodel_npu()
+                    config.activation_checkpoint = policy
+                    config.model.local_compile_regions = regions.copy()
+
+                    npu_changes(config)
+
+                    self.assertIs(config.activation_checkpoint, policy)
+                    self.assertEqual(config.model.local_compile_regions, regions)
+
     def test_preprocess_inputs_matches_pinned_trainer_contract(self) -> None:
         config = build_model_config(
             "glm5_2_debugmodel",

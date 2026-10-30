@@ -98,7 +98,10 @@ def glm5_tp2():
 在 TP 维复制，KL 教师分布使用全部 attention heads。CP 收集共享 KV，按文档和本地
 query 区间生成 TND 元数据；CP 重排和 padding 不得改变文档隔离或因果关系。
 
-Recipe 保留可配置的 activation checkpoint，不强制清除调用方选择的重计算策略。
+Recipe 默认沿用上游 SelectiveAC，并启用 `loss` 和 `swiglu` 局部编译区域。
+`npu_changes` 保留调用方设置的重计算策略和局部编译区域。需要 FullAC 时，从
+`torchtitan.distributed.activation_checkpoint` 导入 `FullAC`，在构建 Trainer 前设置
+`config.activation_checkpoint = FullAC.Config()`。
 融合算子的图编译和各并行组合需分别验证，短程训练通过不代表长期收敛或所有拓扑通过。
 
 ## Ascend 融合算子
@@ -155,4 +158,7 @@ python -m pytest -q tests/test_glm5_dsa.py -m npu
 python -m pytest -q "$ASCEND_REPO/tests/test_glm5.py"
 ```
 
-这些测试验证短程前后向和参数更新，不作为 released 模型精度或长期收敛结论。
+短程训练测试使用单卡 BF16、上下文长度 32，每个用例运行两步，覆盖无重计算、
+SelectiveAC、FullAC，以及 `loss`、`swiglu` 局部编译区域的单独和联合启用。
+同时检查 sparse、warmup、frozen 阶段和 GLM-5.3 MTP 的参数更新行为。
+这些测试不作为 released 模型精度、长期收敛或所有并行与编译组合的验证结论。
