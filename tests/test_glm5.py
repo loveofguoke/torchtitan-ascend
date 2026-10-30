@@ -26,7 +26,7 @@ from torchtitan_ascend.recipes.glm5 import (
 def test_glm5_debugmodel_npu_config(recipe):
     config = recipe()
 
-    assert config.model.local_compile_regions == ["loss", "swiglu"]
+    assert config.model.local_compile_regions == []
     assert isinstance(config.activation_checkpoint, SelectiveAC.Config)
     assert config.training.num_tokens_per_microbatch_per_dp_rank == 256
     assert config.training.max_context_length == 128
@@ -48,21 +48,22 @@ def test_glm5_mtp_npu_config(recipe):
 
     assert len(config.model.mtp_layers) == 1
     assert config.loss.loss_fn.mtp_scale == 0.125
+    assert config.model.local_compile_regions == []
 
 
 @pytest.mark.parametrize(
     "recipe,stage,checkpoint,regions",
     [
         (glm5_2_debugmodel_npu, "sparse", None, []),
-        (glm5_2_debugmodel_npu, "sparse", "selective", []),
+        (glm5_2_debugmodel_npu, "sparse", "selective", None),
         (glm5_2_debugmodel_npu, "sparse", "full", []),
         (glm5_2_debugmodel_npu, "sparse", "selective", ["loss"]),
         (glm5_2_debugmodel_npu, "sparse", "selective", ["swiglu"]),
         (glm5_2_debugmodel_npu, "sparse", "selective", ["loss", "swiglu"]),
-        (glm5_2_debugmodel_npu, "warmup", "selective", ["loss", "swiglu"]),
-        (glm5_2_debugmodel_npu, "frozen", "selective", ["loss", "swiglu"]),
-        (glm5_3_debugmodel_mtp_npu, "sparse", "selective", ["loss", "swiglu"]),
-        (glm5_3_debugmodel_mtp_npu, "sparse", "full", ["loss", "swiglu"]),
+        (glm5_2_debugmodel_npu, "warmup", "selective", None),
+        (glm5_2_debugmodel_npu, "frozen", "selective", None),
+        (glm5_3_debugmodel_mtp_npu, "sparse", "selective", None),
+        (glm5_3_debugmodel_mtp_npu, "sparse", "full", None),
     ],
 )
 def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint, regions):
@@ -91,7 +92,8 @@ def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint, regi
         config.activation_checkpoint = SelectiveAC.Config()
     else:
         config.activation_checkpoint = None
-    config.model.local_compile_regions = regions
+    if regions is not None:
+        config.model.local_compile_regions = regions
     config.dump_folder = str(tmp_path)
     config.debug.seed = 42
     config.training.steps = 2

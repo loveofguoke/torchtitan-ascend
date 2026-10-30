@@ -98,10 +98,11 @@ def glm5_tp2():
 在 TP 维复制，KL 教师分布使用全部 attention heads。CP 收集共享 KV，按文档和本地
 query 区间生成 TND 元数据；CP 重排和 padding 不得改变文档隔离或因果关系。
 
-Recipe 默认沿用上游 SelectiveAC，并启用 `loss` 和 `swiglu` 局部编译区域。
-`npu_changes` 保留调用方设置的重计算策略和局部编译区域。需要 FullAC 时，从
-`torchtitan.distributed.activation_checkpoint` 导入 `FullAC`，在构建 Trainer 前设置
-`config.activation_checkpoint = FullAC.Config()`。
+Recipe 默认沿用上游 SelectiveAC，局部编译默认关闭（`local_compile_regions=[]`）。
+`npu_changes` 保留调用方设置的重计算策略和局部编译区域。需要局部编译时，在构建
+Trainer 前显式设置 `config.model.local_compile_regions = ["loss", "swiglu"]`。
+需要 FullAC 时，从 `torchtitan.distributed.activation_checkpoint` 导入 `FullAC`，
+在构建 Trainer 前设置 `config.activation_checkpoint = FullAC.Config()`。
 融合算子的图编译和各并行组合需分别验证，短程训练通过不代表长期收敛或所有拓扑通过。
 
 ## Ascend 融合算子
