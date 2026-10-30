@@ -36,11 +36,13 @@ def _gather(tensor, axis, dim):
 
 
 def _sparse_width(count):
-    if count <= 2048:
-        return 1024 if count <= 1024 else 2048
-    if count <= 8192:
-        return ((count + 1023) // 1024) * 1024
-    raise ValueError("CANN DSA supports at most 8192 selected keys per query")
+    return max(1024, ((count + 1023) // 1024) * 1024)
+
+
+def _sparse_kl_width(count):
+    if count > 8192:
+        raise ValueError("CANN Sparse KL supports at most 8192 selected keys per query")
+    return _sparse_width(count)
 
 
 def _all_causal_keys(packing, width, device):
@@ -94,7 +96,7 @@ class _IndexerKL(torch.autograd.Function):
                 **common,
             )
         else:
-            width = _sparse_width(indices.shape[-1])
+            width = _sparse_kl_width(indices.shape[-1])
             if width != indices.shape[-1]:
                 indices = torch.nn.functional.pad(indices, (0, width - indices.shape[-1]), value=-1)
             dqi, dki, dw, loss = torch_npu.npu_sparse_lightning_indexer_grad_kl_loss(
@@ -380,7 +382,7 @@ class AscendGlm5Attention(Glm5Attention):
                 # CANN dense KL supports D=128 only. Full causal selection
                 # gives the same dense objective for GLM's D=192 MLA.
                 longest = max(b - a for a, b in zip((0, *packing.key_lengths[:-1]), packing.key_lengths, strict=True))
-                selected_for_attention = _all_causal_keys(packing, _sparse_width(longest), device)
+                selected_for_attention = _all_causal_keys(packing, _sparse_kl_width(longest), device)
             else:
                 selected_for_attention = selected
             out, maximum, total = self.inner_attention(

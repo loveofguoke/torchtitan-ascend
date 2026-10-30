@@ -124,9 +124,10 @@ weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention B
 - latent KV 维度为 512，RoPE 维度为 64，indexer head dim 为 128。
 - Indexer KL 使用 32、64 或 128 个全局 attention heads，以及 8、16、32 或 64 个
   indexer heads。TP 局部 head 数不作为完整教师分布。
-- Dense KL 的主 Q/K 内容维度为 128。GLM released 配置的 192 维 NoPE warmup
-  使用全部因果 key 的融合 sparse attention/KL，表达稠密目标。当前两条 warmup
-  路径都受全 key 选择宽度限制，每个文档最多 8192 tokens。
+- 128 维 NoPE warmup 使用 Dense KL，全因果 key 的 attention 选择宽度按 1024
+  对齐，不受 Sparse KL 的 8192 上限约束。GLM released 配置的 192 维 NoPE
+  warmup 使用全部因果 key 的融合 sparse attention/KL，受 Sparse KL 选择宽度
+  限制，每个文档最多 8192 tokens。
 - Sparse KL 所需的索引宽度按算子支持值补齐 `-1`，不改变模型实际选择的 top-k。
 - Packed-document 元数据表达有效 token 和累计序列长度；padding query 的输出为零。
 
@@ -146,7 +147,7 @@ python -m pytest -q tests/test_glm5_model_config.py tests/test_glm5_state_dict_a
 ```
 
 在已安装固定依赖且可访问 Ascend NPU 的环境运行融合 attention 和 dense/sparse KL
-的 loss、梯度对照：
+的 loss、梯度对照，以及 warmup 的全 key 选择宽度边界检查：
 
 ```bash
 python -m pytest -q tests/test_glm5_dsa.py -m npu

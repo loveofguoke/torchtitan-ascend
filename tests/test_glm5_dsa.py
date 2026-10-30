@@ -296,3 +296,62 @@ def test_scaled_recipe_fused_attention_and_indexer_backward(npu, stage):
         assert attention.wkv_a.weight.grad is None
     else:
         assert torch.isfinite(attention.wkv_a.weight.grad).all()
+
+
+@pytest.mark.npu
+@pytest.mark.parametrize("nope_dim", [128, 192])
+@pytest.mark.parametrize("keys", [8192, 8193])
+def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
+    from torchtitan.config.override import apply_overrides
+    from torchtitan.models.common.aux_loss import AuxLoss
+    from torchtitan_ascend import setup
+    from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+
+    torch.manual_seed(61)
+    setup()
+    queries, heads, index_heads, latent_dim, rope_dim = 32, 32, 8, 512, 64
+    config = glm5_2_debugmodel_npu(seq_len=queries, indexer_stage="warmup")
+    attention_config = config.model.layers[0].attention
+    attention_config.qk_nope_head_dim = nope_dim
+    attention_config.wq_b.out_features = heads * (nope_dim + rope_dim)
+    attention_config.wkv_b.out_features = heads * (nope_dim + attention_config.v_head_dim)
+    apply_overrides(config.override, config)
+    attention = config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
+    attention.init_states()
+    attention.requires_grad_(False)
+
+    q_nope = _rand((queries, heads, nope_dim), scale=0.1).npu()
+    wk = _rand((heads, nope_dim, latent_dim), scale=0.02).npu()
+    query = torch.einsum("tnp,npc->tnc", q_nope, wk)
+    key = _rand((keys, 1, latent_dim), scale=0.1).npu()
+    qr, kr = _rand((queries, heads, rope_dim), scale=0.1).npu(), _rand((keys, 1, rope_dim), scale=0.1).npu()
+    features = (
+        _rand((queries, index_heads, 128), scale=0.1).npu().requires_grad_(),
+        _rand((keys, 1, 128), scale=0.1).npu().requires_grad_(),
+        (torch.randn(queries, index_heads, device="npu") * 0.1 * (index_heads * 128) ** -0.5).requires_grad_(),
+    )
+    # The final 32 queries see a long KV prefix, as on a CP rank. This tests
+    # the production attention/KL boundary without a full long-context model.
+    metadata = DsaMetadata(
+        documents=(tuple(range(keys)),), token_count=keys, query_start=keys - queries, query_end=keys
+    )
+    AuxLoss.set_step_denominator(torch.tensor(float(queries), device="npu"))
+    if nope_dim == 192 and keys > 8192:
+        with pytest.raises(ValueError, match="Sparse KL supports at most 8192 selected keys per query"):
+            attention._fused_attention(query, key, qr, kr, q_nope, wk, metadata, features, None)
+        return
+
+    output, _ = attention._fused_attention(query, key, qr, kr, q_nope, wk, metadata, features, None)
+    output.float().square().mean().backward()
+    assert torch.isfinite(output).all()
+    for feature in features:
+        assert feature.grad is not None and torch.isfinite(feature.grad).all()
+        assert feature.grad.abs().max() > 0
+
+    rq, rk, rqr, rkr = [tensor.float().cpu() for tensor in (query, key, qr, kr)]
+    scores = torch.einsum("tnc,sc->nts", rq, rk[:, 0]) + torch.einsum("tnr,sr->nts", rqr, rkr[:, 0])
+    scores = scores * attention.softmax_scale
+    valid = torch.arange(keys)[None, :] <= torch.arange(keys - queries, keys)[:, None]
+    probabilities = scores.masked_fill(~valid, -torch.inf).softmax(-1)
+    expected = torch.einsum("nts,sc->tnc", probabilities, rk[:, 0])
+    torch.testing.assert_close(output.float().cpu(), expected, rtol=0.015, atol=0.005)
