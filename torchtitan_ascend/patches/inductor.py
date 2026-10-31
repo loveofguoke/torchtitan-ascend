@@ -7,6 +7,37 @@ from functools import wraps
 from torchtitan_ascend.patches import patch
 
 
+class _InertNvUniversalGemmScheduling:
+    """Stand-in for CUDA's NVUniversalGemmScheduling on NPU.
+
+    ``NPUCombinedScheduling.__init__`` calls ``BaseScheduling.__init__`` and
+    never creates ``_nv_universal_gemm_scheduling``, while inherited CUDA
+    scheduling methods read it. Every predicate returns False so no
+    NV-specific template or fusion is selected.
+    """
+
+    def is_nv_universal_gemm_template(self, node):
+        return False
+
+    def is_nv_universal_gemm_fused_template(self, node):
+        return False
+
+    def has_nvgemm_bool_output(self, node):
+        return False
+
+    def has_conflicting_epilogue_reductions(self, node1, node2):
+        return False
+
+    def get_fusion_pair_priority(self, node1, node2):
+        # ``CUDACombinedScheduling`` only honours this value when it is < 2 and
+        # otherwise falls back to the Triton scheduler's priority; returning 2
+        # delegates fusion priority to Triton (0 would override it).
+        return 2
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: False
+
+
 @patch(
     target="torch_npu._inductor.codegen.npu_combined_scheduling:NPUCombinedScheduling.__init__",
     kind="wrap",
@@ -19,6 +50,8 @@ def scheduling(original):
     def initialize(self, *args, **kwargs):
         result = original(self, *args, **kwargs)
         NPUTritonScheduling.supports_sub_parent_epilogue = False
+        if not hasattr(self, "_nv_universal_gemm_scheduling"):
+            self._nv_universal_gemm_scheduling = _InertNvUniversalGemmScheduling()
         return result
 
     return initialize
