@@ -1,10 +1,8 @@
-# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-# SPDX-License-Identifier: BSD-3-Clause
 #
 # This source code is licensed under the BSD-style license found in the
-# LICENSE-BSD-3-Clause file in the root directory of this source tree.
+# LICENSE file in the root directory of this source tree.
 
 import copy
 import unittest
@@ -27,9 +25,8 @@ from torchtitan.models.common.config_utils import (
 from torchtitan.models.common.decoder_sharding import (
     dense_activation_placement,
     dense_sequence_parallel_placement,
-    set_dense_ffn_sharding,
+    residual_activation_placement,
 )
-from torchtitan.models.common.moe_sharding import set_shared_moe_sharding_config
 
 
 @unittest.skipUnless(
@@ -52,22 +49,14 @@ class TestTensorParallelFeedForwardNumerics(DTensorTestBase):
                 base_config = make_ffn_config(
                     dim=dim,
                     hidden_dim=hidden_dim,
-                    w1_param_init=init,
-                    w2w3_param_init=init,
-                )
-                reference = copy.deepcopy(base_config).build().to(device)
-                parallel_config = copy.deepcopy(base_config)
-                attn_x_layout = (
-                    dense_sequence_parallel_placement()
-                    if enable_sp
-                    else dense_activation_placement(tp=spmd.I, cp=spmd.S(0))
-                )
-                set_dense_ffn_sharding(
-                    parallel_config,
-                    attn_x_layout=attn_x_layout,
+                    w13_param_init=init,
+                    w2_param_init=init,
                     enable_sp=enable_sp,
                 )
-                parallel = parallel_config.build().to(device)
+                # The reference is never parallelized, so its sharding is inert.
+                reference = copy.deepcopy(base_config).build().to(device)
+                parallel = copy.deepcopy(base_config).build().to(device)
+                attn_x_layout = residual_activation_placement(enable_sp=enable_sp)
 
                 with torch.no_grad():
                     for reference_weight, parallel_weight in (
@@ -145,16 +134,13 @@ class TestTensorParallelFeedForwardNumerics(DTensorTestBase):
         base_config = make_shared_expert_ffn_config(
             dim=dim,
             hidden_dim=hidden_dim,
-            w1_param_init=init,
-            w2w3_param_init=init,
-        )
-        reference = copy.deepcopy(base_config).build().to(device)
-        parallel_config = copy.deepcopy(base_config)
-        set_shared_moe_sharding_config(
-            parallel_config,
+            w13_param_init=init,
+            w2_param_init=init,
             enable_sp=False,
         )
-        parallel = parallel_config.build().to(device)
+        # The reference is never parallelized, so its sharding is inert.
+        reference = copy.deepcopy(base_config).build().to(device)
+        parallel = copy.deepcopy(base_config).build().to(device)
 
         with torch.no_grad():
             for reference_weight, parallel_weight in (
@@ -223,16 +209,13 @@ class TestTensorParallelFeedForwardNumerics(DTensorTestBase):
         base_config = make_shared_expert_ffn_config(
             dim=dim,
             hidden_dim=hidden_dim,
-            w1_param_init=init,
-            w2w3_param_init=init,
-        )
-        reference = copy.deepcopy(base_config).build().to(device)
-        parallel_config = copy.deepcopy(base_config)
-        set_shared_moe_sharding_config(
-            parallel_config,
+            w13_param_init=init,
+            w2_param_init=init,
             enable_sp=True,
         )
-        parallel = parallel_config.build().to(device)
+        # The reference is never parallelized, so its sharding is inert.
+        reference = copy.deepcopy(base_config).build().to(device)
+        parallel = copy.deepcopy(base_config).build().to(device)
 
         with torch.no_grad():
             for reference_weight, parallel_weight in (

@@ -1,10 +1,8 @@
-# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-# SPDX-License-Identifier: BSD-3-Clause
 #
 # This source code is licensed under the BSD-style license found in the
-# LICENSE-BSD-3-Clause file in the root directory of this source tree.
+# LICENSE file in the root directory of this source tree.
 
 """
 Unit tests for TP-degree / n_kv_heads divisibility validation.
@@ -15,16 +13,17 @@ early ValueError while validating the complete trainer config.
 """
 
 import unittest
+from unittest.mock import patch
 
 try:
     import importlib.util
     import sys
     from unittest.mock import MagicMock
 
-    # triton is Linux-only; stub it so MoE kernel imports don't crash on Windows.
-    # Only stub when triton is genuinely not installed: the original check
-    # ``"triton" not in sys.modules`` tests whether triton has been *loaded*, so an
-    # installed-but-not-yet-imported triton is misdetected and stubbed, polluting
+    # triton is Linux-only; stub it so MoE kernel imports don't crash on Windows
+    # Only stub when triton is genuinely not installed: checking
+    # ``"triton" not in sys.modules`` tests whether triton has been *loaded*,
+    # so an installed-but-not-yet-imported triton is stubbed, polluting
     # sys.modules and causing the whole test class to be skipped.
     if importlib.util.find_spec("triton") is None:
         sys.modules["triton"] = MagicMock()
@@ -61,14 +60,14 @@ def _validate(config: "Llama3Model.Config", tp: int) -> None:
             disable_cuda_graphs=True,
         ),
         debug=DebugConfig(),
-        activation_checkpoint=None,
+        activation_remat=None,
         max_num_documents=None,
     )
 
 
 def _make_llama3_config(n_heads: int, n_kv_heads: int | None) -> "Llama3Model.Config":
     """Build a minimal Llama3Model.Config with the given head counts."""
-    from torchtitan.models.common.attention import ScaledDotProductInnerAttention
+    from torchtitan.models.common.attention import FlexInnerAttention
     from torchtitan.models.common.config_utils import make_ffn_config, make_gqa_config
 
     _LINEAR_INIT = {"weight": lambda t: t}
@@ -88,19 +87,21 @@ def _make_llama3_config(n_heads: int, n_kv_heads: int | None) -> "Llama3Model.Co
                     n_kv_heads=n_kv_heads,
                     wqkv_param_init=_LINEAR_INIT,
                     wo_param_init=_LINEAR_INIT,
-                    inner_attention=ScaledDotProductInnerAttention.Config(),
+                    inner_attention=FlexInnerAttention.Config(),
                     rope=ComplexRoPE.Config(
                         dim=_DIM // n_heads,
                         max_context_length=4096,
                         theta=500000,
                         scaling="llama",
                     ),
+                    enable_sp=True,
                 ),
                 feed_forward=make_ffn_config(
                     dim=_DIM,
                     hidden_dim=compute_ffn_hidden_dim(_DIM, multiple_of=256),
-                    w1_param_init=_LINEAR_INIT,
-                    w2w3_param_init=_LINEAR_INIT,
+                    w13_param_init=_LINEAR_INIT,
+                    w2_param_init=_LINEAR_INIT,
+                    enable_sp=True,
                 ),
             )
         )
@@ -159,6 +160,23 @@ class TestTPKVHeadsValidation(unittest.TestCase):
         """tp=1 -> valid GQA head counts do not raise."""
         cfg = _make_llama3_config(n_heads=8, n_kv_heads=2)
         _validate(cfg, tp=1)
+
+    def test_checks_full_attention_after_sliding_attention(self):
+        from torchtitan.models.common.attention import SlidingWindowFlexInnerAttention
+
+        cfg = _make_llama3_config(n_heads=8, n_kv_heads=8)
+        cfg.layers[
+            0
+        ].attention.inner_attention = SlidingWindowFlexInnerAttention.Config(
+            window_size=128
+        )
+        cfg.layers[1].attention.n_heads = 3
+
+        with self.assertRaisesRegex(ValueError, r"n_heads \(3\)"):
+            _validate(cfg, tp=2)
+        with patch("torchtitan.distributed.spmd_types.spmd_mesh_size", return_value=2):
+            with self.assertRaisesRegex(ValueError, r"n_heads \(3\)"):
+                cfg.build()
 
 
 if __name__ == "__main__":
