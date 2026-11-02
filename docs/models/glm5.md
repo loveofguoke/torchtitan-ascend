@@ -138,8 +138,9 @@ weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention B
 接口规格见 [OpPlugin 文档](https://gitcode.com/Ascend/op-plugin/tree/master/docs/zh/custom_APIs/torch_npu)。
 固定栈的实际前后向验证优先于其他版本接口文档中的能力说明。
 
-ComplexRoPE 使用已有的 `npu_rotary_mul` override。参数初始化沿用上游
-`torch.nn.init.trunc_normal_` 等配置。
+主 MLA 和 indexer 的 RoPE 直接沿用上游 `ComplexRoPE`。该路径已在
+Ascend 950、CANN 9.2.0、PyTorch/TorchNPU 2.15 环境验证；这不改变上述 DSA
+融合算子的型号限制。参数初始化沿用上游 `torch.nn.init.trunc_normal_` 等配置。
 
 ## 验证
 

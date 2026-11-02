@@ -19,7 +19,6 @@ from torchtitan.models.common.linear import maybe_gather_tp_input
 from torchtitan_ascend.device import require_device
 from torchtitan_ascend.models.glm5.dsa import DsaAttention, DsaMetadata, Glm5DsaIndexer
 from torchtitan_ascend.models.glm5.model import Glm5Attention
-from torchtitan_ascend.overrides.rope import npu_complex_rope
 
 _SPARSE_KL_WIDTHS = tuple(range(1024, 8193, 1024))
 
@@ -456,14 +455,12 @@ def npu_glm5_dsa(cfg, *, stage="sparse", indexer_loss_coeff=1.0):
         indexer = derive(
             indexer,
             AscendDsaIndexer.Config,
-            rope=npu_complex_rope(indexer.rope),
             trainable=stage != "frozen",
             sharding_config=None,
         )
     result = derive(
         cfg,
         AscendGlm5Attention.Config,
-        rope=npu_complex_rope(cfg.rope),
         indexer=indexer,
         inner_attention=derive(
             cfg.inner_attention,

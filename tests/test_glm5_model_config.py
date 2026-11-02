@@ -156,6 +156,27 @@ class TestGlm5Config(unittest.TestCase):
                     self.assertIs(config.activation_checkpoint, policy)
                     self.assertEqual(config.model.local_compile_regions, regions)
 
+    def test_npu_override_preserves_upstream_rope(self) -> None:
+        from torchtitan.config.override import apply_overrides
+        from torchtitan.models.common.rope import ComplexRoPE
+        from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_mtp_npu
+
+        config = glm5_2_debugmodel_mtp_npu()
+        attention_configs = [layer.attention for layer in (*config.model.layers, *config.model.mtp_layers)]
+        original = [
+            (attention.rope, attention.indexer.rope if attention.indexer else None) for attention in attention_configs
+        ]
+
+        apply_overrides(config.override, config)
+
+        for layer, (rope, indexer_rope) in zip((*config.model.layers, *config.model.mtp_layers), original, strict=True):
+            with self.subTest(layer=layer):
+                self.assertIs(layer.attention.rope, rope)
+                self.assertIs(type(layer.attention.rope), ComplexRoPE.Config)
+                if indexer_rope is not None:
+                    self.assertIs(layer.attention.indexer.rope, indexer_rope)
+                    self.assertIs(type(layer.attention.indexer.rope), ComplexRoPE.Config)
+
     def test_sparse_training_rejects_padded_topk(self) -> None:
         from torchtitan.config.override import apply_overrides
         from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu

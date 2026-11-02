@@ -1,90 +1,55 @@
-import sys
-from types import SimpleNamespace
-from unittest.mock import Mock
+# SPDX-License-Identifier: Apache-2.0
+"""Validate upstream ComplexRoPE on the A5 path without an Ascend override."""
 
 import pytest
 import torch
 
 from torchtitan.models.common.rope import ComplexRoPE
-from torchtitan_ascend.overrides.rope import AscendComplexRoPE, npu_apply_complex_rope, npu_reshape_for_broadcast
-
-
-def test_complex_cache_uses_token_first_positions():
-    real = torch.arange(32, dtype=torch.float32).view(8, 4)
-    cache = torch.complex(real, real + 100)
-    positions = torch.tensor([0, 1, 2, 0, 1])
-
-    actual = npu_reshape_for_broadcast(cache, (5, 3, 8), positions)
-    expected = cache[positions].view(5, 1, 4)
-
-    assert actual.shape == (5, 1, 4)
-    torch.testing.assert_close(actual, expected)
-
-
-def test_cache_without_positions_uses_token_dimension():
-    cache = torch.arange(32, dtype=torch.float32).view(8, 4)
-
-    actual = npu_reshape_for_broadcast(cache, (5, 3, 8))
-
-    assert actual.shape == (5, 1, 4)
-    torch.testing.assert_close(actual, cache[:5].view(5, 1, 4))
+from torchtitan_ascend.device import get_device_name
 
 
 @pytest.fixture
-def npu_rotary_mul(monkeypatch):
-    def fake_rotary_mul(x, cos, sin, *, rotary_mode):
-        assert rotary_mode == "interleave"
-        x_pairs = x.reshape(*x.shape[:-1], -1, 2)
-        rotated_pairs = torch.stack(
-            (-x_pairs[..., 1], x_pairs[..., 0]),
-            dim=-1,
-        )
-        return x * cos + rotated_pairs.flatten(-2) * sin
-
-    rotary_mul = Mock(side_effect=fake_rotary_mul)
-    monkeypatch.setitem(
-        sys.modules,
-        "torch_npu",
-        SimpleNamespace(npu_rotary_mul=rotary_mul),
-    )
-    return rotary_mul
+def npu():
+    pytest.importorskip("torch_npu")
+    if not torch.npu.is_available():
+        pytest.skip("requires an Ascend NPU")
+    torch.npu.set_device(0)
+    if not get_device_name().startswith("Ascend950"):
+        pytest.skip("upstream ComplexRoPE regression coverage targets A5")
 
 
-def test_fused_complex_rope_matches_torchtitan_math(npu_rotary_mul):
-    query = torch.randn(5, 3, 8, dtype=torch.bfloat16)
-    key = torch.randn(5, 1, 8, dtype=torch.bfloat16)
-    real = torch.randn(5, 1, 4)
-    imag = torch.randn(5, 1, 4)
-    norm = torch.sqrt(real.square() + imag.square())
-    cache = torch.complex(real / norm, imag / norm)
-
-    actual_query, actual_key = npu_apply_complex_rope(query, key, cache)
-    expected_query = (
-        torch.view_as_real(torch.view_as_complex(query.float().reshape(5, 3, 4, 2)) * cache).flatten(-2).to(query.dtype)
-    )
-    expected_key = (
-        torch.view_as_real(torch.view_as_complex(key.float().reshape(5, 1, 4, 2)) * cache).flatten(-2).to(key.dtype)
-    )
-
-    torch.testing.assert_close(actual_query, expected_query)
-    torch.testing.assert_close(actual_key, expected_key)
-    assert npu_rotary_mul.call_count == 2
-
-
+@pytest.mark.npu
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("positions_kind", ["slice", "reset", "random", "boundary"])
 @pytest.mark.parametrize("inverse", [False, True])
 @pytest.mark.parametrize("with_key", [False, True])
-def test_ascend_complex_rope_uses_fused_kernel(npu_rotary_mul, inverse, with_key):
-    config = ComplexRoPE.Config(dim=8, max_context_length=16)
-    upstream = ComplexRoPE(config)
-    ascend = AscendComplexRoPE(AscendComplexRoPE.Config(dim=8, max_context_length=16))
-    query = torch.randn(6, 2, 8)
-    key = torch.randn(6, 1, 8) if with_key else None
-    positions = torch.tensor([0, 3, 2, 5, 4, 1])
+def test_upstream_rope_forward_backward(npu, dtype, positions_kind, inverse, with_key):
+    torch.manual_seed(61)
+    config = ComplexRoPE.Config(dim=64, max_context_length=8192, theta=8_000_000.0)
+    reference = ComplexRoPE(config)
+    # Share the CPU-generated cache to isolate RoPE from CPU/NPU cache-init rounding.
+    actual = ComplexRoPE(config).to("npu")
+    query = torch.randn(128, 32, 64, dtype=dtype, requires_grad=True)
+    key = torch.randn(128, 1, 64, dtype=dtype, requires_grad=True) if with_key else None
+    positions = {
+        "slice": None,
+        "reset": torch.arange(128) % 32,
+        "random": torch.randint(config.max_context_length, (128,)),
+        "boundary": torch.full((128,), config.max_context_length - 1, dtype=torch.int64),
+    }[positions_kind]
+    inputs = (query,) if key is None else (query, key)
+    gradients = tuple(torch.randn_like(value) for value in inputs)
 
-    expected = upstream(query, key, positions, inverse=inverse)
-    actual = ascend(query, key, positions, inverse=inverse)  # pyrefly: ignore [not-callable]
+    expected = reference(query, key, positions, inverse=inverse)
+    expected = expected if isinstance(expected, tuple) else (expected,)
+    expected_gradients = torch.autograd.grad(expected, inputs, gradients)
+    npu_inputs = tuple(value.detach().to("npu").requires_grad_() for value in inputs)
+    npu_positions = None if positions is None else positions.to("npu")
+    observed = actual(npu_inputs[0], npu_inputs[1] if with_key else None, npu_positions, inverse=inverse)
+    observed = observed if isinstance(observed, tuple) else (observed,)
+    observed_gradients = torch.autograd.grad(observed, npu_inputs, tuple(value.to("npu") for value in gradients))
 
-    torch.testing.assert_close(actual, expected)
-    assert npu_rotary_mul.call_count == (2 if with_key else 1)
-    assert torch.is_complex(ascend.cache)
-    assert ascend.cache.shape == (16, 4)
+    tolerance = 1e-5 if dtype == torch.float32 else 1e-2
+    for got, want in zip((*observed, *observed_gradients), (*expected, *expected_gradients), strict=True):
+        assert got.device.type == "npu"
+        torch.testing.assert_close(got.detach().cpu(), want, atol=tolerance, rtol=tolerance)
