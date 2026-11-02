@@ -34,6 +34,7 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 - [Qwen3](docs/models/qwen3.md)
 - [Qwen3.5](docs/models/qwen3_5.md)
 - [Kimi K3](docs/models/kimi_k3.md)
+- [DeepSeek V4.1](docs/models/deepseek_v4_1.md)
 
 ## 开发
 
