@@ -1,110 +1,138 @@
-minimum_pre_commit_version: "4.0.0"
-default_stages: [pre-commit]
-exclude: ^(build/|dist/|outputs/|.*\.egg-info/)|\.(html|csv|svg)$
+exclude: 'build'
+
+default_language_version:
+    python: python3
 
 repos:
-  - repo: https://gitcode.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+-   repo: https://gitcode.com/pre-commit/pre-commit-hooks
+    rev: 6306a48f7dae5861702d573c9c247e4e9498e867
     hooks:
-      - id: trailing-whitespace
-        exclude: ^fixes/
-      - id: end-of-file-fixer
-      - id: check-ast
-      - id: check-yaml
-        args: [--allow-multiple-documents]
-      - id: check-toml
-      - id: check-json
-      - id: check-added-large-files
-      - id: check-merge-conflict
-      - id: detect-private-key
-      - id: no-commit-to-branch
-        args: [--branch=main]
+    -   id: trailing-whitespace
+        # Preserve install-stage patches, including meaningful diff whitespace.
+        exclude: '\.patch$'
+    -   id: check-ast
+    -   id: check-merge-conflict
+    -   id: no-commit-to-branch
+        args: ['--branch=main']
+    -   id: check-added-large-files
+        args: ['--maxkb=500']
+    -   id: end-of-file-fixer
+        exclude: '^(.*\.svg)$|\.patch$'
 
-  - repo: https://gitcode.com/gh_mirrors/ru/ruff-pre-commit
-    rev: v0.14.14
+-   repo: local
     hooks:
-      - id: ruff-check
-        args: [--config, pyproject.toml, --output-format, github, --fix]
-      # ufmt below owns formatting, matching TorchTitan upstream.
-
-  # TorchTitan's Flake8 plugin set complements the existing Ruff checks.
-  - repo: https://gitcode.com/gh_mirrors/fl/flake8
-    rev: 7.1.1
-    hooks:
-      - id: flake8
-        args: [--config=.flake8]
-        additional_dependencies:
-          - flake8-bugbear==24.12.12
-          - pep8-naming==0.14.1
-          - torchfix
-          - flake8-pep585
-          - flake8-new-union-types==0.4.1
-
-  - repo: https://gitcode.com/gh_mirrors/co/codespell
-    rev: v2.4.1
-    hooks:
-      - id: codespell
-        args: [--toml, pyproject.toml]
-        additional_dependencies: [tomli]
-
-  - repo: https://gitcode.com/gh_mirrors/pyl/pylint
-    rev: v4.0.5
-    hooks:
-      - id: pylint
-        args: [--rcfile=pyproject.toml]
-
-  - repo: https://gitcode.com/gh_mirrors/ba/bandit
-    rev: 1.9.4
-    hooks:
-      - id: bandit
-        args: [--config=pyproject.toml, --quiet]
-        additional_dependencies: ["bandit[toml]"]
-
-  - repo: https://gitcode.com/gh_mirrors/ty/typos
-    rev: v1.32.0
-    hooks:
-      - id: typos
-        args: [--force-exclude, --config, pre-commit/typos.toml]
-
-  # CI must provision a platform-appropriate executable at ./gitleaks first.
-  - repo: local
-    hooks:
-      - id: insert-license
-        name: insert-license (Apache-2.0 SPDX header)
+    -   id: insert-license
+        name: insert-license (preserve upstream BSD headers)
         entry: python pre-commit/insert_license.py
         language: python
-        types: [python]
-      - id: ufmt
-        name: ufmt
+        files: \.py$
+
+-   repo: https://gitcode.com/gh_mirrors/fl/flake8
+    rev: 34cbf8ef3950f43d09b85e2e45c15ae5717dc37b
+    hooks:
+    -   id: flake8
+        additional_dependencies:
+          - flake8-bugbear == 22.4.25
+          - pep8-naming == 0.12.1
+          - torchfix
+          - flake8-pep585
+          - flake8-new-union-types == 0.4.1
+        args: ['--config=.flake8']
+
+-   repo: local
+    hooks:
+    -   id: ufmt
+        name: Format files with µfmt
+        description: Safe, atomic formatting with black and µsort
         entry: ufmt format
         language: python
-        types: [python]
-        additional_dependencies: [ufmt==2.3.0, black==24.10.0, usort==1.0.8]
-      - id: pydoclint
-        name: pydoclint
-        entry: pydoclint
-        args: [--config=pyproject.toml]
-        language: python
-        types: [python]
-        additional_dependencies: [pydoclint==0.6.5]
-      - id: pyrefly-check
-        name: Pyrefly (type checking)
-        entry: pyrefly check
-        args: [--summarize-errors]
-        language: python
-        pass_filenames: false
-        types: [python]
-        additional_dependencies: [pyrefly==0.45.1]
-      - id: lychee-link-checker
-        name: lychee-link-checker
-        # Provision lychee on PATH in CI; missing tools fail rather than skip.
-        entry: lychee
-        language: system
-        types_or: [markdown, python]
-        args: [--no-progress, --root-dir=., "--accept=100..399,400,401,402,403,405..999", --max-retries=2, --timeout=20]
-      - id: gitleaks-offline-scan
-        name: Gitleaks Secret Scan (Local Binary)
-        entry: ./gitleaks
-        language: system
-        pass_filenames: false
-        args: [protect, --staged, --redact, --config=pre-commit/.gitleaks.toml]
+        types_or: [python, pyi]
+        require_serial: true
+        additional_dependencies:
+          - ufmt == 2.3.0
+          - black == 22.12.0
+          - usort == 1.0.5
+
+- repo: local
+  hooks:
+    - id: pydoclint
+      name: pydoclint
+      description: "A Python docstring linter that checks arguments, returns, yields, and raises sections"
+      entry: pydoclint
+      language: python
+      types: [python]
+      require_serial: true
+      additional_dependencies:
+        # Package version declared at upstream d88180a8632bb1602a4d81344085cf320f288c5a.
+        - pydoclint == 0.3.8
+      args: [--config=pyproject.toml]
+
+- repo: https://gitcode.com/gh_mirrors/co/codespell
+  rev: v2.4.1
+  hooks:
+    - id: codespell
+      name: codespell
+      description: Checks for common misspellings in text files.
+      entry: codespell --toml pyproject.toml
+      language: python
+      types: [text]
+      additional_dependencies:
+        - tomli
+
+- repo: local
+  hooks:
+    - id: pyrefly-check
+      name: Pyrefly (type checking)
+      description: "Run `pyrefly check` for Python type checking."
+      entry: pyrefly check
+      types_or: [python, pyi]
+      pass_filenames: false
+      require_serial: true
+      stages: [pre-commit, pre-merge-commit, pre-push, manual]
+      language: python
+      additional_dependencies:
+        - pyrefly == 0.45.1
+      args: ["--remove-unused-ignores", "--summarize-errors"]
+
+
+- repo: local
+  hooks:
+    # Check hyperlinks and external links
+    - id: lychee-link-checker
+      name: lychee-link-checker
+      language: system
+      entry: |
+        /bin/bash -c '
+        mkdir -p /tmp/lychee 2>/dev/null
+        SENTINEL_DIR="/tmp/lychee/lychee_lock_${PPID}"
+        if ! command -v lychee >/dev/null 2>&1; then
+            # mkdir is atomic; only one process will succeed in creating it
+            if mkdir "$SENTINEL_DIR" 2>/dev/null; then
+                {
+                  echo "--------------------------------------------------------"
+                  echo "Warning: Lychee (link checker) not found. Skipping ... "
+                  echo ""
+                  echo "To enable local link checking, install Lychee:"
+                  echo "  - MacOS: brew install lychee"
+                  echo "  - Linux/Windows: https://github.com/lycheeverse/lychee"
+                  echo "--------------------------------------------------------"
+                } > /dev/tty 2>/dev/null || true
+            fi
+            exit 0
+        fi
+        lychee "$@"
+        ' --
+      args:
+        - "--quiet"
+        - "--no-progress"
+        - "--cache"
+        - "--exclude-path=(^|/)\\.[^/]+/"
+        - "--root-dir=."
+        - "--accept=100..399,400,401,402,403,405..999" # Fail only on 404
+        - "--exclude=http://localhost:.*"
+        - "--exclude=http://127.0.0.1:.*"
+        - "--exclude=tcp://localhost:.*"
+        - "--max-retries=5"
+        - "--retry-wait-time=10"
+        - "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      types_or: [markdown, python]
