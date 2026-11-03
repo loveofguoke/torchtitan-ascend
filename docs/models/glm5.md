@@ -141,6 +141,7 @@ weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention B
 主 MLA 和 indexer 的 RoPE 直接沿用上游 `ComplexRoPE`。该路径已在
 Ascend 950、CANN 9.2.0、PyTorch/TorchNPU 2.15 环境验证；这不改变上述 DSA
 融合算子的型号限制。参数初始化沿用上游 `torch.nn.init.trunc_normal_` 等配置。
+TP vocabulary-parallel cross entropy 同样沿用 TorchTitan 上游实现。
 
 ## 验证
 
@@ -163,6 +164,19 @@ python -m pytest -q tests/test_glm5_dsa.py -m npu
 ```bash
 python -m pytest -q "$ASCEND_REPO/tests/test_glm5.py"
 ```
+
+使用两张 NPU 单独检查原生 DTensor 参数初始化和 TP vocabulary-parallel loss：
+
+```bash
+ASCEND_RT_VISIBLE_DEVICES=0,1 python -m torch.distributed.run --standalone --nproc-per-node=2 \
+    -m pytest -q "$ASCEND_REPO/tests/integration_tests/test_glm5_native_ops.py"
+```
+
+该检查覆盖 FP32/BF16、复制与分片 DTensor 的初始化分布及 seed 复现性，
+以及均匀/不均匀词表分片、跨 shard label、`IGNORE_INDEX`、两种 reduction 的
+loss 和 logits 梯度。两项原生路径已在 Ascend 950、CANN 9.2.0、PyTorch
+`2.15.0+cpu`、torch_npu `1a25e6b`、TorchTitan `edde21fb` 的 eager 环境验证。
+此结果不替代其他依赖版本、编译路径和完整模型训练的验证。
 
 短程训练测试使用单卡 BF16、上下文长度 32，每个用例运行两步，覆盖无重计算、
 SelectiveAC、FullAC，以及 `loss`、`swiglu` 局部编译区域的单独和联合启用。
