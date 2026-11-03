@@ -98,7 +98,7 @@ def glm5_tp2():
 在 TP 维复制，KL 教师分布使用全部 attention heads。CP 收集共享 KV，按文档和本地
 query 区间生成 TND 元数据；CP 重排和 padding 不得改变文档隔离或因果关系。
 
-Recipe 默认沿用上游 SelectiveAC，局部编译默认关闭（`local_compile_regions=[]`）。
+Recipe 沿用上游 SelectiveAC 和模型的局部编译默认值（当前为 `local_compile_regions=[]`）。
 `npu_changes` 保留调用方设置的重计算策略和局部编译区域。需要局部编译时，在构建
 Trainer 前显式设置 `config.model.local_compile_regions = ["loss", "swiglu"]`。
 需要 FullAC 时，从 `torchtitan.distributed.activation_checkpoint` 导入 `FullAC`，
@@ -121,7 +121,8 @@ weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention B
 
 当前固定 CANN 栈的约束：
 
-- 硬件为 Ascend 910B / Atlas A2 或 Ascend 910_93 / Atlas A3。
+- 硬件型号支持 Ascend 910B / Atlas A2、Ascend 910_93 / Atlas A3 和 Ascend 950 / Atlas A5。
+  A5 的实测软件版本与验证范围见下文。
 - latent KV 维度为 512，RoPE 维度为 64，indexer head dim 为 128。
 - Indexer KL 使用 32、64 或 128 个全局 attention heads，以及 8、16、32 或 64 个
   indexer heads。TP 局部 head 数不作为完整教师分布。
@@ -138,10 +139,17 @@ weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention B
 接口规格见 [OpPlugin 文档](https://gitcode.com/Ascend/op-plugin/tree/master/docs/zh/custom_APIs/torch_npu)。
 固定栈的实际前后向验证优先于其他版本接口文档中的能力说明。
 
-主 MLA 和 indexer 的 RoPE 直接沿用上游 `ComplexRoPE`。该路径已在
-Ascend 950、CANN 9.2.0、PyTorch/TorchNPU 2.15 环境验证；这不改变上述 DSA
-融合算子的型号限制。参数初始化沿用上游 `torch.nn.init.trunc_normal_` 等配置。
+主 MLA 和 indexer 的 RoPE 直接沿用上游 `ComplexRoPE`。A5 的 LightningIndexer
+要求 Q、K 和 mixing weights 使用相同 dtype，因此仅在离散 top-k 选择调用前转换
+weights；参数投影和 KL 目标继续使用 FP32 weights。A2/A3 保留 FP32 选择输入。
+选择权重的量化可能改变接近的 top-k 边界，不保证与 FP32 选择逐项一致。
+参数初始化沿用上游 `torch.nn.init.trunc_normal_` 等配置。
 TP vocabulary-parallel cross entropy 同样沿用 TorchTitan 上游实现。
+
+上述 A5 融合路径已在 Ascend 950、CANN 9.2.0、PyTorch `2.15.0+cpu`、
+torch_npu `1a25e6b`、TorchTitan `edde21fb` 环境完成组件 loss/梯度对照和
+BF16 debug 短程训练验证。验证覆盖 SelectiveAC、FullAC、局部编译，以及
+FSDP2、TP2、CP2 和 TP2×CP2 的已测组合；其他软件版本及长期精度需分别验证。
 
 ## 验证
 

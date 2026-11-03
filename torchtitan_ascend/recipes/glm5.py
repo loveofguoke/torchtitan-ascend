@@ -55,7 +55,6 @@ def _glm5_debugmodel_npu(
     if index_topk is not None:
         for layer in model_config.layers:
             layer.attention.index_topk = index_topk
-    model_config.local_compile_regions = []
     num_mtp_layers = len(model_config.mtp_layers or ())
     if mtp_scale is not None and num_mtp_layers == 0:
         raise ValueError("mtp_scale may only be set for a GLM MTP flavor")

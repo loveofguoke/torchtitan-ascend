@@ -16,7 +16,7 @@ from torchtitan.models.common.cp_attention import CPInnerAttention
 from torchtitan.models.common.decoder_sharding import dense_param_placement
 from torchtitan.models.common.linear import maybe_gather_tp_input
 
-from torchtitan_ascend.device import require_device
+from torchtitan_ascend.device import get_device_name, require_device
 from torchtitan_ascend.models.glm5.dsa import DsaAttention, DsaMetadata, Glm5DsaIndexer
 from torchtitan_ascend.models.glm5.model import Glm5Attention
 
@@ -218,7 +218,8 @@ class AscendGlm5Attention(Glm5Attention):
         index_topk: int = 2048
 
     def __init__(self, config):
-        require_device("Ascend910B", "Ascend910_93", feature="GLM fused DSA")
+        require_device("Ascend910B", "Ascend910_93", "Ascend950", feature="GLM fused DSA")
+        self._indexer_weights_match_query = get_device_name().startswith("Ascend950")
         super().__init__(config)
         self.indexer_stage = config.indexer_stage
         self.index_topk = config.index_topk
@@ -328,10 +329,15 @@ class AscendGlm5Attention(Glm5Attention):
             qi = features[0].index_select(0, qidx).contiguous()
             ki = features[1].index_select(0, kidx).contiguous()
             weights = features[2].index_select(0, qidx).contiguous()
+            selection_weights = weights.detach()
+            if self._indexer_weights_match_query:
+                # A5 selection requires matching Q/K/weights dtypes. Keep the
+                # original FP32 weights for the differentiable KL objective.
+                selection_weights = selection_weights.to(qi.dtype)
             selected, _ = torch_npu.npu_lightning_indexer(
                 qi.detach(),
                 ki.detach(),
-                weights.detach(),
+                selection_weights,
                 actual_seq_lengths_query=qlens,
                 actual_seq_lengths_key=klens,
                 layout_query="TND",

@@ -7,6 +7,7 @@ from dataclasses import replace
 import pytest
 import torch
 
+from torchtitan_ascend.device import get_device_name
 from torchtitan_ascend.models.glm5.dsa import DsaMetadata
 
 
@@ -71,6 +72,8 @@ def test_fused_indexer_topk_matches_packed_document_scores(npu):
     tokens, index_heads, head_dim, topk = 32, 8, 128, 8
     qi, ki = _rand((tokens, index_heads, head_dim)), _rand((tokens, 1, head_dim))
     weights = torch.randn(tokens, index_heads) * (index_heads * head_dim) ** -0.5
+    if get_device_name().startswith("Ascend950"):
+        weights = weights.to(qi.dtype)
     lengths = torch.tensor([16, 32], dtype=torch.int32).npu()
     indices, _ = npu.npu_lightning_indexer(
         qi.npu(),
@@ -88,7 +91,7 @@ def test_fused_indexer_topk_matches_packed_document_scores(npu):
         k = ki[start : start + 16, 0].float()
         scores = torch.einsum(
             "tn,tns->ts",
-            weights[start : start + 16],
+            weights[start : start + 16].float(),
             torch.einsum("tnd,sd->tns", q, k).relu(),
         )
         for row in range(16):
@@ -99,6 +102,42 @@ def test_fused_indexer_topk_matches_packed_document_scores(npu):
             actual = scores[row, selected].sort(descending=True).values
             expected = scores[row, : row + 1].topk(min(topk, row + 1)).values
             torch.testing.assert_close(actual, expected, rtol=0.01, atol=0.001)
+
+
+@pytest.mark.npu
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
+@pytest.mark.parametrize("topk", [1024, 2048])
+def test_fused_indexer_topk_matches_long_kv_scores(npu, dtype, topk):
+    torch.manual_seed(317)
+    queries, keys, index_heads, head_dim = 128, 8192, 8, 128
+    qi = (torch.randn(queries, index_heads, head_dim) * 0.5).to(dtype)
+    ki = (torch.randn(keys, 1, head_dim) * 0.5).to(dtype)
+    weights = torch.randn(queries, index_heads) * (index_heads * head_dim) ** -0.5
+    if get_device_name().startswith("Ascend950"):
+        weights = weights.to(dtype)
+    indices, _ = npu.npu_lightning_indexer(
+        qi.npu(),
+        ki.npu(),
+        weights.npu(),
+        actual_seq_lengths_query=torch.tensor([queries], dtype=torch.int32).npu(),
+        actual_seq_lengths_key=torch.tensor([keys], dtype=torch.int32).npu(),
+        layout_query="TND",
+        layout_key="TND",
+        sparse_count=topk,
+        sparse_mode=3,
+    )
+    indices = indices.cpu().squeeze(1).long()
+    # Use the actual kernel inputs, including A5's quantized selection weights.
+    similarities = torch.einsum("qnh,kh->qnk", qi.float(), ki[:, 0].float()).relu()
+    scores = torch.einsum("qn,qnk->qk", weights.float(), similarities)
+    allowed = torch.le(torch.arange(keys)[None, :], torch.arange(keys - queries, keys)[:, None])
+    scores.masked_fill_(torch.logical_not(allowed), -torch.inf)
+    assert indices.shape == (queries, topk)
+    assert ((indices >= 0) & (indices < keys)).all()
+    assert allowed.gather(1, indices).all()
+    actual = scores.gather(1, indices).sort(descending=True).values
+    expected = scores.topk(topk).values
+    torch.testing.assert_close(actual, expected, rtol=0.01, atol=0.001)
 
 
 @pytest.mark.npu
@@ -359,10 +398,25 @@ def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
 
 @pytest.mark.npu
 @pytest.mark.parametrize("topk", [1024, 2048])
-def test_sparse_stage_kl_matches_selected_keys(npu, topk):
+def test_sparse_stage_kl_matches_selected_keys(npu, topk, monkeypatch):
     from torchtitan.config.override import apply_overrides
     from torchtitan.models.common.aux_loss import AuxLoss
     from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+
+    observed = {}
+    original_indexer = npu.npu_lightning_indexer
+    original_kl = npu.npu_sparse_lightning_indexer_grad_kl_loss
+
+    def indexer(query, key, weights, *args, **kwargs):
+        observed["selection"] = (query.dtype, key.dtype, weights.dtype, weights.requires_grad)
+        return original_indexer(query, key, weights, *args, **kwargs)
+
+    def kl(query, key, qi, ki, weights, *args, **kwargs):
+        observed["kl_weights_dtype"] = weights.dtype
+        return original_kl(query, key, qi, ki, weights, *args, **kwargs)
+
+    monkeypatch.setattr(npu, "npu_lightning_indexer", indexer)
+    monkeypatch.setattr(npu, "npu_sparse_lightning_indexer_grad_kl_loss", kl)
 
     torch.manual_seed(61)
     queries, keys, heads, index_heads = 32, 2 * topk, 32, 8
@@ -390,6 +444,10 @@ def test_sparse_stage_kl_matches_selected_keys(npu, topk):
     AuxLoss.set_step_denominator(torch.tensor(float(queries), device="npu"))
     output, indices = attention._fused_attention(query, key, qr, kr, q_nope, wk, metadata, features, None)
     output.float().square().mean().backward()
+    selection_dtype = query.dtype if get_device_name().startswith("Ascend950") else torch.float32
+    assert observed["selection"] == (query.dtype, query.dtype, selection_dtype, False)
+    assert observed["kl_weights_dtype"] == torch.float32
+    assert features[2].dtype == torch.float32
 
     rq, rk, rqr, rkr = [value.detach().cpu().double() for value in (query, key, qr, kr)]
     valid = torch.zeros(queries, keys, dtype=torch.bool)

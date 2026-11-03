@@ -19,6 +19,22 @@ from torchtitan_ascend.recipes.glm5 import (
 )
 
 
+@pytest.mark.parametrize("regions", [[], ["loss", "swiglu"]])
+def test_glm5_recipe_preserves_model_compile_regions(monkeypatch, regions):
+    from torchtitan_ascend.recipes import glm5
+
+    original = glm5.build_model_config
+
+    def build_model_config(*args, **kwargs):
+        config = original(*args, **kwargs)
+        config.local_compile_regions = regions.copy()
+        return config
+
+    monkeypatch.setattr(glm5, "build_model_config", build_model_config)
+
+    assert glm5.glm5_2_debugmodel_npu().model.local_compile_regions == regions
+
+
 @pytest.mark.parametrize(
     "recipe",
     [glm5_2_debugmodel_npu, glm5_3_debugmodel_npu],
