@@ -21,13 +21,27 @@ def npu_changes(config: Trainer.Config) -> None:
     Swaps the InnerKDA subtree to the fla_npu kernels and drops the
     gated_rmsnorm local-compile region.
     """
+    from torchtitan_ascend.overrides.attn_res import enable_triton_attn_res
+    from torchtitan_ascend.overrides.fusion_attention import ascendc_fusion_attention
     from torchtitan_ascend.overrides.kda import npu_kda
+    from torchtitan_ascend.overrides.rmsnorm import ascendc_rmsnorm
+    from torchtitan_ascend.overrides.rotary_mul import enable_ascendc_rotary_mul
+    from torchtitan_ascend.overrides.situ_glu import ascendc_situ_glu
 
     config.override.imports = [*config.override.imports, override_target(npu_kda)]
     config.model.local_compile_regions = [
         region for region in config.model.local_compile_regions if region != _GATED_RMSNORM_REGION
     ]
     config.comm.train_timeout_seconds = max(config.comm.train_timeout_seconds, 600)
+
+    config.override.imports = [
+        *config.override.imports,
+        override_target(ascendc_fusion_attention),
+        override_target(ascendc_situ_glu),
+        override_target(ascendc_rmsnorm),
+    ]
+    enable_ascendc_rotary_mul()
+    config.override.imports.append(enable_triton_attn_res())
 
 
 def kimi_k3_debugmodel_npu() -> Trainer.Config:
