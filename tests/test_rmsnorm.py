@@ -22,7 +22,9 @@ def test_rms_public_api(monkeypatch):
     y = MODULE.rmsnorm(x, weight, 3e-4)
     assert torch.equal(y, F.rms_norm(x, (9,), weight, 3e-4))
     assert calls == [3e-4]
-    assert all(torch.isfinite(v).all() for v in torch.autograd.grad(y.sum(), (x, weight)))
+    assert all(
+        torch.isfinite(v).all() for v in torch.autograd.grad(y.sum(), (x, weight))
+    )
 
 
 def test_rms_fp32_input_retains_bf16_parameter_gradient(monkeypatch):
@@ -33,7 +35,11 @@ def test_rms_fp32_input_retains_bf16_parameter_gradient(monkeypatch):
         return F.rms_norm(x, (x.shape[-1],), weight, epsilon), None
 
     monkeypatch.setattr(torch_npu, "npu_rms_norm", fake)
-    model = MODULE.ascendc_rmsnorm(MODULE.RMSNorm.Config(normalized_shape=9, eps=3e-4)).build().bfloat16()
+    model = (
+        MODULE.ascendc_rmsnorm(MODULE.RMSNorm.Config(normalized_shape=9, eps=3e-4))
+        .build()
+        .bfloat16()
+    )
     weight = model.weight
     x = torch.randn(2, 9, requires_grad=True)
     actual = model(input=x)

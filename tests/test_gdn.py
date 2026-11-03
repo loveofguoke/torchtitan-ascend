@@ -23,7 +23,11 @@ def _reference_convolution(x, weight, *, cu_seqlens):
     outputs = []
     for begin, end in zip(offsets[:-1], offsets[1:], strict=True):
         segment = x[begin:end].T.unsqueeze(0)
-        output = functional.conv1d(functional.pad(segment, (weight.shape[-1] - 1, 0)), weight, groups=x.shape[-1])
+        output = functional.conv1d(
+            functional.pad(segment, (weight.shape[-1] - 1, 0)),
+            weight,
+            groups=x.shape[-1],
+        )
         outputs.append(functional.silu(output.to(dtype).squeeze(0).T))
     return torch.cat(outputs)
 
@@ -44,7 +48,9 @@ def test_fla_convolution_matches_reference(offsets, npu):
         (causal_conv1d, npu, actual),
     ]:
         x, weight = [t.to(device).clone().requires_grad_() for t in inputs]
-        cu = torch.tensor(offsets, dtype=torch.int32, device=device) if offsets else None
+        cu = (
+            torch.tensor(offsets, dtype=torch.int32, device=device) if offsets else None
+        )
         output = module(x, weight, cu_seqlens=cu)
         output.backward(grad_output.to(device))
         results.extend([output.detach().cpu(), x.grad.cpu(), weight.grad.cpu()])

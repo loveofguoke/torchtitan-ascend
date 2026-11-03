@@ -19,11 +19,16 @@ class TestSigmoidGateLocalCompile(unittest.TestCase):
     def setUp(self):
         apply_local_compile(["shared_expert_gate"])
         # A local generator leaves the global RNG stream unchanged for later tests.
-        generator = torch.Generator(device=torch.accelerator.current_accelerator().type).manual_seed(0)
+        generator = torch.Generator(
+            device=torch.accelerator.current_accelerator().type
+        ).manual_seed(0)
 
         def randn(*shape: int) -> torch.Tensor:
             return torch.randn(
-                *shape, device=torch.accelerator.current_accelerator().type, dtype=torch.bfloat16, generator=generator
+                *shape,
+                device=torch.accelerator.current_accelerator().type,
+                dtype=torch.bfloat16,
+                generator=generator
             )
 
         self.gate = randn(64, 1).requires_grad_()
@@ -65,7 +70,9 @@ class TestSigmoidGateLocalCompile(unittest.TestCase):
             split_grads = torch.autograd.grad(split_output, (gate, out), grad_output)
             split_results.append((split_output, *split_grads))
 
-        for full, splits in zip((output, *grads), zip(*split_results), strict=True):  # noqa: B905
+        for full, splits in zip(
+            (output, *grads), zip(*split_results), strict=True
+        ):  # noqa: B905
             self.assertTrue(torch.equal(full, torch.cat(splits)))
 
 

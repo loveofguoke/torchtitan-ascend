@@ -50,14 +50,27 @@ def _scores(
 
 
 @triton.jit
-def _mix(V, Scores, Prob, Out, N: tl.constexpr, D: tl.constexpr, BN: tl.constexpr, BD: tl.constexpr):
+def _mix(
+    V,
+    Scores,
+    Prob,
+    Out,
+    N: tl.constexpr,
+    D: tl.constexpr,
+    BN: tl.constexpr,
+    BD: tl.constexpr,
+):
     t, tile = tl.program_id(0), tl.program_id(1)
     n = tl.arange(0, BN)
     d = tile * BD + tl.arange(0, BD)
     scores = tl.load(Scores + t * N + n, n < N, -float("inf"))
     exp_scores = tl.exp(scores - tl.max(scores, 0))
     prob = exp_scores / tl.sum(exp_scores, 0)
-    v = tl.load(V + (t * N + n[:, None]) * D + d[None, :], (n[:, None] < N) & (d[None, :] < D), 0).to(tl.float32)
+    v = tl.load(
+        V + (t * N + n[:, None]) * D + d[None, :],
+        (n[:, None] < N) & (d[None, :] < D),
+        0,
+    ).to(tl.float32)
     output = tl.sum(prob[:, None] * v, 0)
     tl.store(Out + t * D + d, output, d < D)
     if tile == 0:
@@ -123,8 +136,12 @@ class _AttentionResidual(torch.autograd.Function):
         output = torch.empty((tokens, dim), device=values.device, dtype=values.dtype)
         block_dim = triton.next_power_of_2(dim)
         block_count = triton.next_power_of_2(blocks)
-        _scores[(tokens * blocks,)](values, gamma, project, rstd, scores, blocks, dim, eps, block_dim)
-        _mix[(tokens, triton.cdiv(dim, 128))](values, scores, prob, output, blocks, dim, block_count, 128)
+        _scores[(tokens * blocks,)](
+            values, gamma, project, rstd, scores, blocks, dim, eps, block_dim
+        )
+        _mix[(tokens, triton.cdiv(dim, 128))](
+            values, scores, prob, output, blocks, dim, block_count, 128
+        )
         ctx.save_for_backward(values, gamma, project, rstd, scores, prob)
         return output
 
@@ -136,7 +153,9 @@ class _AttentionResidual(torch.autograd.Function):
         dots = torch.empty_like(scores)
         dv = torch.empty_like(values)
         dw = torch.empty((tokens, dim), device=values.device, dtype=torch.float32)
-        _value_dot[(tokens * blocks,)](values, dy, dots, blocks, dim, triton.next_power_of_2(dim))
+        _value_dot[(tokens * blocks,)](
+            values, dy, dots, blocks, dim, triton.next_power_of_2(dim)
+        )
         # The Ascend graph pass corrupts the parameter-gradient reduction.
         _grad_values[(tokens, triton.cdiv(dim, 128))](
             values,
@@ -171,10 +190,16 @@ def attention_residual(partial_block_TD, block_residual_TND, projection, norm):
         else torch.cat((block_residual_TND, partial_block_TD.unsqueeze(1)), dim=1)
     )
     if values.shape[1] == 0 or values.shape[0] == 0:
-        return _eager_attention_residual(partial_block_TD, block_residual_TND, projection, norm)
+        return _eager_attention_residual(
+            partial_block_TD, block_residual_TND, projection, norm
+        )
     if norm.eps is None or norm.weight is None:
-        raise ValueError("Attention residual requires weighted RMSNorm and explicit epsilon")
-    return _AttentionResidual.apply(values, norm.weight, projection.weight.squeeze(0), norm.eps)
+        raise ValueError(
+            "Attention residual requires weighted RMSNorm and explicit epsilon"
+        )
+    return _AttentionResidual.apply(
+        values, norm.weight, projection.weight.squeeze(0), norm.eps
+    )
 
 
 class TritonAttentionResidual(AttentionResidual):
@@ -183,10 +208,16 @@ class TritonAttentionResidual(AttentionResidual):
         pass
 
     def __call__(self, partial_block_TD, block_residual_TND, projection, norm):
-        return attention_residual(partial_block_TD, block_residual_TND, projection, norm)
+        return attention_residual(
+            partial_block_TD, block_residual_TND, projection, norm
+        )
 
 
-@override(target=AttentionResidual.Config, exact=True, description="Triton attention residual on Ascend")
+@override(
+    target=AttentionResidual.Config,
+    exact=True,
+    description="Triton attention residual on Ascend",
+)
 def triton_attn_res(config):
     return derive(config, TritonAttentionResidual.Config)
 

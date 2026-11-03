@@ -36,7 +36,9 @@ def test_situ_layout_and_backward(monkeypatch, linear_beta, noncontiguous):
     x.requires_grad_()
     ref_x = x.detach().clone().requires_grad_()
     actual = MODULE.situ_glu(x, 4.0, linear_beta)
-    expected = situ_reference(ref_x.flatten(-2), beta=4.0, linear_beta=linear_beta or 0.0)
+    expected = situ_reference(
+        ref_x.flatten(-2), beta=4.0, linear_beta=linear_beta or 0.0
+    )
     dy = torch.randn_like(actual)
     actual.backward(dy)
     expected.backward(dy)
@@ -63,9 +65,14 @@ def test_situ_accepts_packed_gate_up(monkeypatch, offsets):
         return gate_up[:, 0] * gate_up[:, 1]
 
     monkeypatch.setattr(MODULE, "situ_glu", fused)
-    actual = MODULE.ascendc_situ_glu(MODULE.SiTUGLU.Config(beta=4.0, linear_beta=25.0)).build()(packed, offsets=offsets)
+    actual = MODULE.ascendc_situ_glu(
+        MODULE.SiTUGLU.Config(beta=4.0, linear_beta=25.0)
+    ).build()(packed, offsets=offsets)
     expected = packed[:, 0] * packed[:, 1]
     assert calls[0][0] is packed
     assert calls[0][1:] == (4.0, 25.0)
     assert_close(actual, expected, rtol=0, atol=0)
-    assert_close(torch.autograd.grad(actual.sum(), packed)[0], torch.autograd.grad(expected.sum(), packed)[0])
+    assert_close(
+        torch.autograd.grad(actual.sum(), packed)[0],
+        torch.autograd.grad(expected.sum(), packed)[0],
+    )

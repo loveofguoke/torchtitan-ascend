@@ -8,9 +8,9 @@ KDA kernels.
 """
 
 from torchtitan.trainer import Trainer
+from torchtitan_recipes.tests.models.kimi_k3 import kimi_k3_debugmodel
 
 from torchtitan_ascend.config import override_target
-from torchtitan_recipes.tests.models.kimi_k3 import kimi_k3_debugmodel
 
 _GATED_RMSNORM_REGION = "gated_rmsnorm"
 
@@ -30,7 +30,9 @@ def npu_changes(config: Trainer.Config) -> None:
 
     config.override.imports = [*config.override.imports, override_target(npu_kda)]
     config.model.local_compile_regions = [
-        region for region in config.model.local_compile_regions if region != _GATED_RMSNORM_REGION
+        region
+        for region in config.model.local_compile_regions
+        if region != _GATED_RMSNORM_REGION
     ]
     config.comm.train_timeout_seconds = max(config.comm.train_timeout_seconds, 600)
 

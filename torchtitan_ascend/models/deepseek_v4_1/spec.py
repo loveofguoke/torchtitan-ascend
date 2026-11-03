@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Add immutable V4.1 model specifications and static layer policies;
@@ -101,13 +103,17 @@ class V41Spec:
         ):
             outside = sorted({s for s in sources if s < 0 or s >= self.n_layers})
             if outside:
-                raise ValueError(f"{name} outside the {self.n_layers}-layer crop: {outside}")
+                raise ValueError(
+                    f"{name} outside the {self.n_layers}-layer crop: {outside}"
+                )
         if any(ratio < 0 for ratio in self.compress_ratios):
             raise ValueError("compress_ratios must be non-negative")
         if not set(self.kv_source_layers).issubset(self.index_source_layers):
             raise ValueError("every KV source must also be an index source")
         for layer_id, ratio in enumerate(self.compress_ratios):
-            kv_source = max((s for s in self.kv_source_layers if s <= layer_id), default=None)
+            kv_source = max(
+                (s for s in self.kv_source_layers if s <= layer_id), default=None
+            )
             if ratio > 0 and kv_source is None:
                 raise ValueError(
                     f"layer {layer_id} has compress_ratio={ratio} but no KV source precedes it"
@@ -118,12 +124,17 @@ class V41Spec:
                     f"layer {kv_source} (compress_ratio={self.compress_ratios[kv_source]}); "
                     "the ratios must match"
                 )
-            if layer_id in self.index_source_layers and layer_id not in self.kv_source_layers:
+            if (
+                layer_id in self.index_source_layers
+                and layer_id not in self.kv_source_layers
+            ):
                 index_source = max(
                     (s for s in self.index_source_layers if s < layer_id), default=None
                 )
                 if index_source is None:
-                    raise ValueError(f"re-indexing layer {layer_id} has no preceding index source")
+                    raise ValueError(
+                        f"re-indexing layer {layer_id} has no preceding index source"
+                    )
                 if self.compress_ratios[index_source] != ratio:
                     raise ValueError(
                         f"layer {layer_id} (compress_ratio={ratio}) scores the shared index keys "

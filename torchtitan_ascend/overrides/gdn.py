@@ -43,10 +43,23 @@ class _ChunkGDN(torch.autograd.Function):
             use_qk_l2norm_in_kernel=True,
         )
         ctx.scale = q.shape[-1] ** -0.5
-        out, _, cumulative_g, inverse, _, _, q_hat, k_hat, q_rstd, k_rstd = ascendc.chunk_gated_delta_rule_fwd(
+        (
+            out,
+            _,
+            cumulative_g,
+            inverse,
+            _,
+            _,
+            q_hat,
+            k_hat,
+            q_rstd,
+            k_rstd,
+        ) = ascendc.chunk_gated_delta_rule_fwd(
             q, k, v, g, beta, scale=ctx.scale, **ctx.options
         )
-        ctx.save_for_backward(q_hat, k_hat, v, cumulative_g, beta, inverse, q_rstd, k_rstd)
+        ctx.save_for_backward(
+            q_hat, k_hat, v, cumulative_g, beta, inverse, q_rstd, k_rstd
+        )
         return out
 
     @staticmethod
@@ -83,7 +96,9 @@ class FlaGDNKernel(GDNKernel):
 
     def forward(self, q, k, v, g, beta, *, cu_seqlens=None):
         offsets = cu_seqlens.tolist() if cu_seqlens is not None else None
-        tensors = [t.unsqueeze(0).contiguous() for t in (q, k, v, g.float(), beta.float())]
+        tensors = [
+            t.unsqueeze(0).contiguous() for t in (q, k, v, g.float(), beta.float())
+        ]
         return _ChunkGDN.apply(*tensors, offsets).squeeze(0)
 
 
@@ -117,8 +132,13 @@ class FlaInnerGDN(InnerGDN):
         value_head_dim,
         attention_metadata: LinearAttentionMetadata | None,
     ):
-        if attention_metadata is not None and type(attention_metadata) is not LinearAttentionMetadata:
-            raise NotImplementedError("fla-npu GDN does not support context-parallel attention metadata")
+        if (
+            attention_metadata is not None
+            and type(attention_metadata) is not LinearAttentionMetadata
+        ):
+            raise NotImplementedError(
+                "fla-npu GDN does not support context-parallel attention metadata"
+            )
         return super().forward(
             query_TC,
             key_TC,
@@ -135,13 +155,21 @@ class FlaInnerGDN(InnerGDN):
             attention_metadata=attention_metadata,
         )
 
-    def short_convolution(self, x_TC, weight_C1W, initial_state=None, *, cu_seqlens, routing):
+    def short_convolution(
+        self, x_TC, weight_C1W, initial_state=None, *, cu_seqlens, routing
+    ):
         if initial_state is not None or routing is not None:
-            raise NotImplementedError("fla-npu GDN convolution does not support cached state or context parallelism")
+            raise NotImplementedError(
+                "fla-npu GDN convolution does not support cached state or context parallelism"
+            )
         return causal_conv1d(x_TC, weight_C1W, cu_seqlens)
 
 
-@override(target=InnerGDN.Config, exact=True, description="GDN training with fla-npu AscendC operators")
+@override(
+    target=InnerGDN.Config,
+    exact=True,
+    description="GDN training with fla-npu AscendC operators",
+)
 def npu_gated_delta_net(cfg: InnerGDN.Config) -> FlaInnerGDN.Config:
     new = derive(cfg, FlaInnerGDN.Config)
     new.kernel = derive(cfg.kernel, FlaGDNKernel.Config)

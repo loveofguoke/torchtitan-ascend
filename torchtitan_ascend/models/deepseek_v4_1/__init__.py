@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Expose only public V4.1 interfaces and move implementation details to flavors.py.
@@ -23,18 +25,18 @@
 """DeepSeek V4.1 model flavors and public config builders."""
 
 from .flavors import (
+    Attention,
+    build_model_config,
     CANDIDATE_BLOCK_SIZE,
+    DeepSeekV41Model,
+    layer_policies,
     MODEL_FLAVORS,
     V41_CANDIDATE_SOURCE_LAYER,
     V41_FULL_COMPRESS_RATIOS,
     V41_FULL_INDEX_SOURCE_LAYERS,
     V41_KV_SOURCE_LAYERS,
-    Attention,
-    DeepSeekV41Model,
     V41LayerPolicy,
     V41Spec,
-    build_model_config,
-    layer_policies,
 )
 
 __all__ = [

@@ -14,7 +14,9 @@ def test_output_lse_and_gradients(dtype, heads, window, monkeypatch):
         pytest.skip("requires one visible Ascend NPU")
 
     def forbidden(*args, **kwargs):
-        raise AssertionError("unexpected native FlashAttention or unused LSE computation")
+        raise AssertionError(
+            "unexpected native FlashAttention or unused LSE computation"
+        )
 
     for name in ("_flash_attention_forward", "_flash_attention_backward"):
         monkeypatch.setattr(torch.ops.aten, name, forbidden)
@@ -56,12 +58,18 @@ def test_output_lse_and_gradients(dtype, heads, window, monkeypatch):
     dy = torch.randn_like(out)
     grads = torch.autograd.grad(out, (q, k, v), dy)
     ref_grads = torch.autograd.grad(expected, refs, dy.float().cpu())
-    for got, want in zip((out, lse, *grads), (expected, torch.cat(lses, dim=1), *ref_grads), strict=True):
-        torch.testing.assert_close(got.detach().float().cpu(), want, atol=0.025, rtol=0.025)
+    for got, want in zip(
+        (out, lse, *grads), (expected, torch.cat(lses, dim=1), *ref_grads), strict=True
+    ):
+        torch.testing.assert_close(
+            got.detach().float().cpu(), want, atol=0.025, rtol=0.025
+        )
 
     if dtype == torch.bfloat16:
         from torchtitan_ascend.patches.varlen_attention import _attention
 
         monkeypatch.setattr(_attention, "_lse", forbidden)
-        result = varlen.varlen_attn(q, k, v, cq, ck, 40, 56, window_size=window, enable_gqa=heads != 2)
+        result = varlen.varlen_attn(
+            q, k, v, cq, ck, 40, 56, window_size=window, enable_gqa=heads != 2
+        )
         torch.testing.assert_close(result, out)

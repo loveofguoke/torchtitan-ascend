@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Add CSA2, mHC and Selector sharding contracts;
@@ -145,12 +147,14 @@ def _set_indexer_sharding(indexer_cfg) -> None:
 def _set_attention_sharding(attention_cfg, *, enable_sp: bool) -> None:
     attention_cfg.sharding_config = attention_sharding_config(enable_sp=enable_sp)
     if attention_cfg.compress_ratio > 0:
-        attention_cfg.inner_attention.sharding_config = csa2_inner_attention_sharding_config(
-            compress_ratio=attention_cfg.compress_ratio
+        attention_cfg.inner_attention.sharding_config = (
+            csa2_inner_attention_sharding_config(
+                compress_ratio=attention_cfg.compress_ratio
+            )
         )
     else:
-        attention_cfg.inner_attention.sharding_config = dsa_inner_attention_sharding_config(
-            compress_ratio=0
+        attention_cfg.inner_attention.sharding_config = (
+            dsa_inner_attention_sharding_config(compress_ratio=0)
         )
 
     replicated_input_layout = dense_activation_placement(tp=spmd.R, cp=spmd.S(0))
@@ -181,7 +185,9 @@ def set_deepseek_v4_1_sharding_config(
     enable_ep: bool,
 ) -> None:
     del enable_ep
-    config.tok_embeddings.sharding_config = token_embedding_sharding_config(enable_sp=enable_sp)
+    config.tok_embeddings.sharding_config = token_embedding_sharding_config(
+        enable_sp=enable_sp
+    )
     config.norm.sharding_config = pre_lm_head_norm_sharding_config(enable_sp=enable_sp)
     config.lm_head.sharding_config = lm_head_sharding_config()
     for layer_cfg in config.layers:

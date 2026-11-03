@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Add the V4.1 NPU debug training recipe;
@@ -25,6 +27,7 @@
 """DeepSeek V4.1 training recipes with Ascend operator overrides."""
 
 from torchtitan.components.data import ConcatThenSplitPackingConfig, GrainDataLoader
+from torchtitan.components.data.text_datasets import DATASETS
 from torchtitan.components.loss import ChunkedLossWrapper, CrossEntropyLoss
 from torchtitan.components.optim import (
     AdamW,
@@ -34,13 +37,12 @@ from torchtitan.components.optim import (
 )
 from torchtitan.config import DebugConfig, TrainingConfig
 from torchtitan.config.parallelism import ParallelismConfig
-from torchtitan.components.data.text_datasets import DATASETS
 from torchtitan.models.common.config_utils import decoder_vocab_size
-from torchtitan_ascend.models.deepseek_v4_1 import build_model_config
 from torchtitan.observability.metrics import MetricsProcessor
 from torchtitan.trainer import Trainer
 
 from torchtitan_ascend.config.override_utils import add_override
+from torchtitan_ascend.models.deepseek_v4_1 import build_model_config
 
 
 def npu_changes(config: Trainer.Config) -> None:

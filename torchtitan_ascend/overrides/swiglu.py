@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """SwiGLU activation via ``torch_npu.npu_swiglu``.
 """
 

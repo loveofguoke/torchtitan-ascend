@@ -15,13 +15,19 @@ def test_attn_res_packing_and_gradients(monkeypatch, partial):
     norm = RMSNorm(RMSNorm.Config(normalized_shape=7, eps=3e-4)).double()
     proj = torch.nn.Linear(7, 1, bias=False).double()
     blocks = torch.randn(4, 3, 7, dtype=torch.float64, requires_grad=True)
-    prefix = torch.randn(4, 7, dtype=torch.float64, requires_grad=True) if partial else None
+    prefix = (
+        torch.randn(4, 7, dtype=torch.float64, requires_grad=True) if partial else None
+    )
 
     def kernel(values, gamma, project, eps):
         values_float = values.float()
-        keys = values_float * torch.rsqrt(values_float.square().mean(-1, keepdim=True) + eps)
+        keys = values_float * torch.rsqrt(
+            values_float.square().mean(-1, keepdim=True) + eps
+        )
         scores = (keys * (gamma.float() * project.float())).sum(-1)
-        return (scores.softmax(-1).unsqueeze(1) @ values_float).squeeze(1).to(values.dtype)
+        return (
+            (scores.softmax(-1).unsqueeze(1) @ values_float).squeeze(1).to(values.dtype)
+        )
 
     monkeypatch.setattr(MODULE._AttentionResidual, "apply", kernel)
     a = MODULE.TritonAttentionResidual.Config().build()(prefix, blocks, proj, norm)
@@ -53,11 +59,17 @@ def test_attn_res_npu_matches_reference(dim, partial):
     with torch.no_grad():
         proj.weight.copy_(torch.randn(1, dim, generator=generator) / dim**0.5)
     blocks = torch.randn(16, 3, dim, generator=generator).to("npu").requires_grad_()
-    prefix = torch.randn(16, dim, generator=generator).to("npu").requires_grad_() if partial else None
+    prefix = (
+        torch.randn(16, dim, generator=generator).to("npu").requires_grad_()
+        if partial
+        else None
+    )
     actual = MODULE.attention_residual(prefix, blocks, proj, norm)
     inputs = [blocks, norm.weight, proj.weight] + ([prefix] if partial else [])
     # A CPU FP64 oracle avoids NPU matmul accumulation error in projection gradients.
-    reference_inputs = [tensor.detach().cpu().double().requires_grad_() for tensor in inputs]
+    reference_inputs = [
+        tensor.detach().cpu().double().requires_grad_() for tensor in inputs
+    ]
     values, gamma, project = reference_inputs[:3]
     if partial:
         values = torch.cat((values, reference_inputs[3].unsqueeze(1)), dim=1)

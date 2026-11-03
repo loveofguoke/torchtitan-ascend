@@ -16,7 +16,10 @@ _MISSING = object()
 
 
 def patch(
-    *, target: str, kind: Literal["wrap", "replace", "polyfill"] = "wrap", deferred: bool = False
+    *,
+    target: str,
+    kind: Literal["wrap", "replace", "polyfill"] = "wrap",
+    deferred: bool = False,
 ) -> Callable[[Callable[[Any], Any]], Callable[[], None]]:
     """Register a factory and return its zero-argument application function.
 
@@ -25,8 +28,12 @@ def patch(
     Each target has one registered patch. Static and class methods retain binding.
     """
     module_name, separator, attribute = target.partition(":")
-    if not separator or not all(part.isidentifier() for part in (*module_name.split("."), *attribute.split("."))):
-        raise ValueError(f"Invalid patch target {target!r}; expected 'module:attribute'")
+    if not separator or not all(
+        part.isidentifier() for part in (*module_name.split("."), *attribute.split("."))
+    ):
+        raise ValueError(
+            f"Invalid patch target {target!r}; expected 'module:attribute'"
+        )
     if kind not in ("wrap", "replace", "polyfill"):
         raise ValueError(f"Unknown patch kind: {kind!r}")
 
@@ -49,7 +56,11 @@ def patch(
             elif kind != "polyfill":
                 raise AttributeError(f"Patch target {target!r} does not exist")
 
-            descriptor = type(original) if isinstance(original, staticmethod | classmethod) else None
+            descriptor = (
+                type(original)
+                if isinstance(original, staticmethod | classmethod)
+                else None
+            )
             function = original.__func__ if descriptor else original
             if function is not _MISSING and not callable(function):
                 raise TypeError(f"Patch target {target!r} is not callable")
@@ -80,7 +91,7 @@ def apply_all() -> None:
     """Discover public patch modules, then install or defer their patches."""
     from . import __path__
 
-    for module in sorted(pkgutil.iter_modules(__path__), key=lambda module: module.name):
+    for module in sorted(pkgutil.iter_modules(__path__), key=lambda info: info.name):
         if not module.name.startswith("_") and module.name != "registry":
             importlib.import_module(f"{__package__}.{module.name}")
     for apply in _REGISTRY.values():

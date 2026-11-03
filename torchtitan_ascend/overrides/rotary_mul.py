@@ -1,8 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 """Opt-in vision RoPE following MindSpeed-MM's FP32 interleaved route."""
 
 from __future__ import annotations
 
-from torchtitan.models.common.rope import ComplexRoPE
 from torchtitan.models.kimi_k2_7 import vision_encoder
 
 __all__ = [

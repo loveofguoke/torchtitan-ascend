@@ -29,10 +29,16 @@ def read_metrics(path: str | Path) -> tuple[dict[int, float], dict[int, float]]:
         step_text, loss_text, norm_text = line.split()
         step, loss, norm = int(step_text), float(loss_text), float(norm_text)
         assert step not in losses, f"duplicate step {step}: {path}"
-        assert math.isfinite(loss) and loss > 0, f"invalid value for loss at step {step}: {path}"
-        assert math.isfinite(norm) and norm >= 0, f"invalid value for grad norm at step {step}: {path}"
+        assert (
+            math.isfinite(loss) and loss > 0
+        ), f"invalid value for loss at step {step}: {path}"
+        assert (
+            math.isfinite(norm) and norm >= 0
+        ), f"invalid value for grad norm at step {step}: {path}"
         losses[step], norms[step] = loss, norm
-    assert list(losses) == list(range(1, STEPS + 1)), f"expected exactly steps 1..{STEPS}: {path}"
+    assert list(losses) == list(
+        range(1, STEPS + 1)
+    ), f"expected exactly steps 1..{STEPS}: {path}"
     return losses, norms
 
 
@@ -54,7 +60,9 @@ def compare_losses(reference, candidate, *, deterministic=False):
             )
         print(f"PASS: {STEPS}-step deterministic loss comparison, zero error")
         return
-    errors = {step: abs(actual[step] - value) / value for step, value in baseline.items()}
+    errors = {
+        step: abs(actual[step] - value) / value for step, value in baseline.items()
+    }
     assert errors[1] < FIRST_STEP_RTOL, (
         f"first-step loss relative error: {errors[1]:.6%} >= {FIRST_STEP_RTOL:.3%}; "
         f"baseline={baseline[1]}, actual={actual[1]}. Log: {candidate}"
@@ -64,7 +72,9 @@ def compare_losses(reference, candidate, *, deterministic=False):
         f"loss relative error at step {worst}: {errors[worst]:.6%} >= {RTOL:.3%}; "
         f"baseline={baseline[worst]}, actual={actual[worst]}. Log: {candidate}"
     )
-    print(f"PASS: {STEPS}-step loss comparison, first relative error={errors[1]:.6%}, max={errors[worst]:.6%}")
+    print(
+        f"PASS: {STEPS}-step loss comparison, first relative error={errors[1]:.6%}, max={errors[worst]:.6%}"
+    )
 
 
 def compare_norms(reference, candidate, *, exact=False):
@@ -110,11 +120,16 @@ def export_metrics(directory: Path) -> Path:
     events.Reload()
     losses = events.Scalars("loss_metrics/global_avg_loss")
     norms = events.Scalars("grad_norm")
-    assert [event.step for event in losses] == [event.step for event in norms], f"loss/norm step mismatch: {directory}"
+    assert [event.step for event in losses] == [
+        event.step for event in norms
+    ], f"loss/norm step mismatch: {directory}"
     log = directory / "metrics.log"
     log.write_text(
         "# step loss grad_norm\n"
-        + "".join(f"{loss.step} {loss.value!r} {norm.value!r}\n" for loss, norm in zip(losses, norms, strict=True)),
+        + "".join(
+            f"{loss.step} {loss.value!r} {norm.value!r}\n"
+            for loss, norm in zip(losses, norms, strict=True)
+        ),
         encoding="utf-8",
     )
     read_metrics(log)
@@ -142,10 +157,16 @@ def precision_recipe():
 def _run_training():
     torch = pytest.importorskip("torch")
     pytest.importorskip("torch_npu")
-    if not hasattr(torch, "npu") or not torch.npu.is_available() or torch.npu.device_count() < NGPU:
+    if (
+        not hasattr(torch, "npu")
+        or not torch.npu.is_available()
+        or torch.npu.device_count() < NGPU
+    ):
         pytest.skip(f"requires {NGPU} visible Ascend NPUs")
     if not Path("run_train.sh").is_file() or not Path("torchtitan").is_dir():
-        pytest.fail("run this test from the pinned TorchTitan directory containing run_train.sh and torchtitan/")
+        pytest.fail(
+            "run this test from the pinned TorchTitan directory containing run_train.sh and torchtitan/"
+        )
     output = ROOT / "outputs/kimi_k3"
     output.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="fsdp2_", dir=output))
@@ -158,7 +179,9 @@ def _run_training():
         MODULE="test_kimi_k3",
         CONFIG="precision_recipe",
         PYTHONHASHSEED="42",
-        PYTHONPATH=os.pathsep.join([str(Path(__file__).parent), str(ROOT), env.get("PYTHONPATH", "")]),
+        PYTHONPATH=os.pathsep.join(
+            [str(Path(__file__).parent), str(ROOT), env.get("PYTHONPATH", "")]
+        ),
     )
     env.pop("COMM_BACKEND", None)
     with log_path.open("w", encoding="utf-8") as log:
@@ -170,7 +193,9 @@ def _run_training():
             timeout=1800,
             check=False,
         )
-    assert result.returncode == 0, f"training failed (rc={result.returncode}): {log_path}"
+    assert (
+        result.returncode == 0
+    ), f"training failed (rc={result.returncode}): {log_path}"
     return export_metrics(directory)
 
 

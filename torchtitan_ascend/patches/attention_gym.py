@@ -23,7 +23,9 @@ def lazy_backends(original):
             cause: BaseException = error
             while cause.__cause__ is not None:
                 cause = cause.__cause__
-            if not isinstance(cause, ModuleNotFoundError) or (cause.name or "").split(".")[0] not in {
+            if not isinstance(cause, ModuleNotFoundError) or (cause.name or "").split(
+                "."
+            )[0] not in {
                 "cutlass",
                 "cuda",
                 "cudnn",

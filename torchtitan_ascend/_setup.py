@@ -11,7 +11,9 @@ def setup(*, apply_patches: bool = True) -> None:
     global _configured
     if _configured is not None:
         if _configured != apply_patches:
-            raise RuntimeError("setup() was already called with a different apply_patches value")
+            raise RuntimeError(
+                "setup() was already called with a different apply_patches value"
+            )
         return
 
     if apply_patches:

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Ascend token permutation and unpermutation with fused NPU operators."""
 
 import torch
@@ -22,7 +23,9 @@ def permute(
         sorted_indices: Full inverse mapping of shape [T*K], used by unpermute.
             For the second EP permutation, K=1 and IDs refer to local experts.
     """
-    return torch_npu.npu_moe_token_permute(tokens, indices, num_out_tokens=num_out_tokens)
+    return torch_npu.npu_moe_token_permute(
+        tokens, indices, num_out_tokens=num_out_tokens
+    )
 
 
 def unpermute(

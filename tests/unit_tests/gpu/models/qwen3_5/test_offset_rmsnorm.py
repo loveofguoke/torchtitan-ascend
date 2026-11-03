@@ -6,8 +6,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE-BSD-3-Clause file in the root directory of this source tree.
 
-from collections.abc import Callable
 import unittest
+from collections.abc import Callable
 from unittest.mock import patch
 
 import torch
@@ -19,13 +19,19 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 
 from torchtitan_ascend import setup
 
+
 # Spawned DTensor workers import this module without pytest's conftest.
 setup()
 
 from torchtitan.distributed.local_compile import apply_local_compile  # noqa: E402
 from torchtitan.distributed.parallelism_context import ParallelismContext  # noqa: E402
-from torchtitan.distributed.spmd_types import set_current_spmd_mesh, set_spmd_meshes  # noqa: E402
-from torchtitan.models.common.decoder_sharding import head_norm_sharding_config  # noqa: E402
+from torchtitan.distributed.spmd_types import (  # noqa: E402
+    set_current_spmd_mesh,
+    set_spmd_meshes,
+)
+from torchtitan.models.common.decoder_sharding import (  # noqa: E402
+    head_norm_sharding_config,
+)
 from torchtitan.models.qwen3_5.model import OffsetRMSNorm  # noqa: E402
 
 
@@ -42,7 +48,10 @@ class TestOffsetRMSNormCompile(unittest.TestCase):
         from torch._inductor.utils import run_fw_bw_and_get_code
 
         module = (
-            OffsetRMSNorm.Config(dim=128, eps=1e-6).build().to(torch.accelerator.current_accelerator().type).to(torch.bfloat16)
+            OffsetRMSNorm.Config(dim=128, eps=1e-6)
+            .build()
+            .to(torch.accelerator.current_accelerator().type)
+            .to(torch.bfloat16)
         )
         with torch.no_grad():
             module.weight.normal_()
@@ -61,7 +70,10 @@ class TestOffsetRMSNormCompile(unittest.TestCase):
 
     def test_forward_and_backward_match_eager(self):
         module = (
-            OffsetRMSNorm.Config(dim=128, eps=1e-6).build().to(torch.accelerator.current_accelerator().type).to(torch.bfloat16)
+            OffsetRMSNorm.Config(dim=128, eps=1e-6)
+            .build()
+            .to(torch.accelerator.current_accelerator().type)
+            .to(torch.bfloat16)
         )
         with torch.no_grad():
             module.weight.normal_()
@@ -102,9 +114,7 @@ class TestOffsetRMSNormCompile(unittest.TestCase):
         torch.testing.assert_close(grad_weight, reference_grad_weight)
 
 
-@unittest.skipUnless(
-    torch.accelerator.device_count() >= 2, "requires two devices"
-)
+@unittest.skipUnless(torch.accelerator.device_count() >= 2, "requires two devices")
 class TestOffsetRMSNormTensorParallel(DTensorTestBase):
     # Supplied by the external DTensor and unittest bases.
     device_type: str

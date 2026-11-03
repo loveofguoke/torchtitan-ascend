@@ -33,7 +33,9 @@ class _SiTUGLU(torch.autograd.Function):
         forward, _ = _operators()
         ctx.save_for_backward(packed)
         ctx.beta, ctx.linear_beta = beta, linear_beta
-        return forward(packed, dim=-1, beta=beta, linear_beta=linear_beta, activate_left=True)
+        return forward(
+            packed, dim=-1, beta=beta, linear_beta=linear_beta, activate_left=True
+        )
 
     @staticmethod
     def backward(ctx, dy):
@@ -57,7 +59,11 @@ def situ_glu(gate_up, beta, linear_beta):
         raise ValueError("SiTU beta must be finite and positive")
     if linear_beta is not None and (not math.isfinite(linear_beta) or linear_beta <= 0):
         raise ValueError("SiTU linear_beta must be None or finite and positive")
-    return _SiTUGLU.apply(gate_up.contiguous().flatten(-2), beta, 0.0 if linear_beta is None else linear_beta)
+    return _SiTUGLU.apply(
+        gate_up.contiguous().flatten(-2),
+        beta,
+        0.0 if linear_beta is None else linear_beta,
+    )
 
 
 class AscendCSiTUGLU(SiTUGLU):

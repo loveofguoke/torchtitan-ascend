@@ -37,29 +37,43 @@ def apply(original):
         num_splits=None,
     ):
         if seqused_k is not None or block_table is not None:
-            raise NotImplementedError("NPU varlen_attn patch does not support seqused_k or block_table")
+            raise NotImplementedError(
+                "NPU varlen_attn patch does not support seqused_k or block_table"
+            )
         # The CANN training path does not split KV across separate attention calls.
         if num_splits not in (None, 1):
-            raise NotImplementedError("NPU varlen_attn patch only supports num_splits=None or 1")
+            raise NotImplementedError(
+                "NPU varlen_attn patch only supports num_splits=None or 1"
+            )
         if any(t.dim() != 3 for t in (query, key, value)):
             raise ValueError("NPU varlen_attn requires packed 3D Q/K/V tensors")
         if query.dtype not in (torch.float16, torch.bfloat16):
             raise NotImplementedError("NPU varlen_attn requires float16 or bfloat16")
-        if any(t.dtype != query.dtype or t.device != query.device for t in (key, value)):
+        if any(
+            t.dtype != query.dtype or t.device != query.device for t in (key, value)
+        ):
             raise ValueError("NPU varlen_attn requires matching Q/K/V dtype and device")
         if key.shape[:2] != value.shape[:2] or query.shape[-1] != key.shape[-1]:
             raise ValueError("NPU varlen_attn requires compatible Q/K/V shapes")
         hq, hk = query.shape[1], key.shape[1]
         if hk == 0 or hq == 0 or hq % hk or (hq != hk and not enable_gqa):
-            raise ValueError("NPU varlen_attn requires enable_gqa=True for grouped query heads")
+            raise ValueError(
+                "NPU varlen_attn requires enable_gqa=True for grouped query heads"
+            )
         for cu in (cu_seq_q, cu_seq_k):
             if cu is None or cu.ndim != 1 or cu.dtype not in (torch.int32, torch.int64):
-                raise ValueError("NPU varlen_attn requires 1D integer cumulative lengths")
+                raise ValueError(
+                    "NPU varlen_attn requires 1D integer cumulative lengths"
+                )
             if cu.device != query.device:
-                raise ValueError("NPU varlen_attn cumulative lengths must be on the query device")
+                raise ValueError(
+                    "NPU varlen_attn cumulative lengths must be on the query device"
+                )
         left, right = window_size
         if left < -1 or right not in (-1, 0):
-            raise NotImplementedError("NPU varlen_attn supports full, causal and left-window attention")
+            raise NotImplementedError(
+                "NPU varlen_attn supports full, causal and left-window attention"
+            )
         return_lse = return_aux is not None and return_aux.lse
         out, lse, _, _ = attention(
             query,

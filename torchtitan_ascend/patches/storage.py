@@ -23,7 +23,9 @@ def apply(original):
     def construct_storage(data_ptr, device, size_bytes):
         device = torch.device(device)
         if device.type == "npu":
-            return torch_npu._C._construct_storage_from_data_pointer(data_ptr, device, size_bytes)
+            return torch_npu._C._construct_storage_from_data_pointer(
+                data_ptr, device, size_bytes
+            )
         return original(data_ptr, device, size_bytes)
 
     return construct_storage

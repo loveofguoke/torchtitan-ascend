@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Add per-document compression group layout;
