@@ -11,10 +11,11 @@ from torch.distributed.device_mesh import init_device_mesh
 from torchtitan.distributed.spmd_types import set_spmd_meshes
 from torchtitan.models.common.activation import SiTUGLU
 from torchtitan.models.common.linear import GroupedLinear
+from torchtitan.models.common.moe import RoutedExperts
 from torchtitan.models.common.moe.token_dispatcher import AllToAllTokenDispatcher
 
-from torchtitan_ascend.overrides.mc2_routed_experts import AscendMC2RoutedExperts
-from torchtitan_ascend.overrides.token_dispatcher import AscendAllToAllTokenDispatcher
+from torchtitan_ascend.overrides.mc2_routed_experts import npu_mc2_routed_experts
+from torchtitan_ascend.overrides.token_dispatcher import npu_token_dispatcher
 
 pytestmark = pytest.mark.npu
 
@@ -51,12 +52,23 @@ def ep_runtime():
 
 def _inputs(rank, world_size, device, dtype):
     generator = torch.Generator().manual_seed(42 + rank)
-    x = torch.randn(TOKENS, DIM, generator=generator).to(device=device, dtype=dtype).requires_grad_()
-    scores = torch.rand(TOKENS, TOP_K, generator=generator).softmax(-1).to(device).requires_grad_()
+    x = (
+        torch.randn(TOKENS, DIM, generator=generator)
+        .to(device=device, dtype=dtype)
+        .requires_grad_()
+    )
+    scores = (
+        torch.rand(TOKENS, TOP_K, generator=generator)
+        .softmax(-1)
+        .to(device)
+        .requires_grad_()
+    )
     ids = (torch.arange(TOKENS * TOP_K).reshape(TOKENS, TOP_K) + rank) % (
         world_size * EXPERTS_PER_RANK
     )
-    counts = torch.bincount(ids.flatten(), minlength=world_size * EXPERTS_PER_RANK).to(device)
+    counts = torch.bincount(ids.flatten(), minlength=world_size * EXPERTS_PER_RANK).to(
+        device
+    )
     return x, scores, ids.to(device=device, dtype=torch.int32), counts
 
 
@@ -69,8 +81,10 @@ def _assert_gradient(tensor):
 def test_alltoall_dispatcher_ep(ep_runtime):
     """Dispatch then combine unchanged expert rows to recover the input."""
     rank, world_size, device = ep_runtime
-    dispatcher = AscendAllToAllTokenDispatcher.Config(
-        num_experts=world_size * EXPERTS_PER_RANK, top_k=TOP_K
+    dispatcher = npu_token_dispatcher(
+        AllToAllTokenDispatcher.Config(
+            num_experts=world_size * EXPERTS_PER_RANK, top_k=TOP_K
+        )
     ).build()
     x, scores, ids, counts = _inputs(rank, world_size, device, torch.float32)
     routed, expert_counts, metadata = dispatcher.dispatch(x, scores, ids, counts)
@@ -91,19 +105,31 @@ def test_mc2_routed_experts_ep(ep_runtime):
     """Run fused dispatch, expert computation and combine, then backward."""
     rank, world_size, device = ep_runtime
     experts = world_size * EXPERTS_PER_RANK
-    model = AscendMC2RoutedExperts.Config(
-        w13=GroupedLinear.Config(group_size=experts, in_features=DIM, out_features=HIDDEN, num_linears=2),
-        w2=GroupedLinear.Config(group_size=experts, in_features=HIDDEN, out_features=DIM),
-        token_dispatcher=AllToAllTokenDispatcher.Config(num_experts=experts, top_k=TOP_K),
-        activation_fn=SiTUGLU.Config(beta=4.0, linear_beta=25.0),
+    model = npu_mc2_routed_experts(
+        RoutedExperts.Config(
+            w13=GroupedLinear.Config(
+                group_size=experts, in_features=DIM, out_features=HIDDEN, num_linears=2
+            ),
+            w2=GroupedLinear.Config(
+                group_size=experts, in_features=HIDDEN, out_features=DIM
+            ),
+            token_dispatcher=AllToAllTokenDispatcher.Config(
+                num_experts=experts, top_k=TOP_K
+            ),
+            activation_fn=SiTUGLU.Config(beta=4.0, linear_beta=25.0),
+        )
     ).build()
     generator = torch.Generator().manual_seed(100 + rank)
     # Place only this rank's expert weights on its NPU, without FSDP setup.
     model.w13.weight = torch.nn.Parameter(
-        (torch.randn(EXPERTS_PER_RANK, 2, HIDDEN, DIM, generator=generator) * 0.02).to(device)
+        (torch.randn(EXPERTS_PER_RANK, 2, HIDDEN, DIM, generator=generator) * 0.02).to(
+            device
+        )
     )
     model.w2.weight = torch.nn.Parameter(
-        (torch.randn(EXPERTS_PER_RANK, DIM, HIDDEN, generator=generator) * 0.02).to(device)
+        (torch.randn(EXPERTS_PER_RANK, DIM, HIDDEN, generator=generator) * 0.02).to(
+            device
+        )
     )
     model.w13.group_size = model.w2.group_size = EXPERTS_PER_RANK
     x, scores, ids, counts = _inputs(rank, world_size, device, torch.bfloat16)

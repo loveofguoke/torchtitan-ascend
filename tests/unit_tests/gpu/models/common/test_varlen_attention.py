@@ -6,22 +6,24 @@
 # LICENSE-BSD-3-Clause file in the root directory of this source tree.
 
 import unittest
+from typing import TYPE_CHECKING
 
 import pytest
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+import torch_npu  # noqa: F401
 from torch.distributed.device_mesh import init_device_mesh
 from torch.nn.attention import sdpa_kernel, SDPBackend
 from torch.testing._internal.common_utils import DeterministicGuard
-import torch_npu  # noqa: F401
 
 from torchtitan_ascend import setup
+
 
 # Native DTensor workers import this module without pytest conftest.
 setup()
 
-from torch.testing._internal.distributed._tensor.common_dtensor import (  # noqa: E402
+from torch.testing._internal.distributed._tensor.common_dtensor import (
     DTensorTestBase,
     with_comms,
 )
@@ -36,10 +38,14 @@ from torchtitan.models.common.attention import (  # noqa: E402
     VarlenAttentionMetadata,
     VarlenInnerAttention,
 )
-from torchtitan.models.common.attention.cp_attention import UlyssesVarlenInnerAttention  # noqa: E402
+from torchtitan.models.common.attention.cp_attention import (  # noqa: E402
+    UlyssesVarlenInnerAttention,
+)
 
 
-pytestmark = pytest.mark.skipif(not torch.npu.is_available(), reason="requires an Ascend NPU")
+pytestmark = pytest.mark.skipif(
+    not torch.npu.is_available(), reason="requires an Ascend NPU"
+)
 
 
 def _metadata():
@@ -147,9 +153,18 @@ def test_compiled_and_traced_steps_match_eager(dtype, mode):
     torch.testing.assert_close(actual, expected, atol=0, rtol=0)
 
 
+if TYPE_CHECKING:
+    _DTensorTestBase = unittest.TestCase
+else:
+    _DTensorTestBase = DTensorTestBase
+
+
 @pytest.mark.multi_gpu
 @unittest.skipUnless(torch.npu.device_count() >= 2, "requires two Ascend NPUs")
-class TestVarlenUlyssesNumerics(DTensorTestBase):
+class TestVarlenUlyssesNumerics(_DTensorTestBase):
+
+    rank: int
+
     @property
     def device_type(self) -> str:
         return "npu"
@@ -164,7 +179,7 @@ class TestVarlenUlyssesNumerics(DTensorTestBase):
         device = torch.device("npu", self.rank)
         # The middle document crosses the CP boundary at token 64.
         positions = torch.cat([torch.arange(n) for n in (17, 79, 24, 8)]).to(device)
-        padding_mask = torch.arange(128, device=device) >= 120
+        padding_mask: torch.Tensor = torch.arange(128, device=device) >= 120
         metadata = create_varlen_metadata_for_document(
             positions,
             padding_mask=padding_mask,

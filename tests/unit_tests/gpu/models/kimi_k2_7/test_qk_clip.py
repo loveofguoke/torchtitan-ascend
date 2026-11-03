@@ -9,32 +9,36 @@
 
 import unittest
 from types import SimpleNamespace
-from typing import cast
+from typing import cast, TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 
 import torch
 import torch.nn as nn
+
+import torch_npu  # noqa: F401
 import torch_remat as remat
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.tensor import distribute_tensor, Shard
 from torch.distributed.tensor.debug import CommDebugMode
 from torch.nn.attention.flex_attention import create_block_mask
-
-import torch_npu  # noqa: F401
 from torchtitan_ascend import setup
+
 
 # Spawned DTensor workers import this module without pytest's conftest.
 setup()
 
-from torch.testing._internal.distributed._tensor.common_dtensor import (  # noqa: E402
+from torch.testing._internal.distributed._tensor.common_dtensor import (
     DTensorTestBase,
     with_comms,
 )
 from torchtitan.components.optim import AdamW, OptimizersContainer  # noqa: E402
 from torchtitan.distributed import ParallelismContext  # noqa: E402
-from torchtitan.models.common.attention import FlexInnerAttention, MLAAttention  # noqa: E402
+from torchtitan.models.common.attention import (  # noqa: E402
+    FlexInnerAttention,
+    MLAAttention,
+)
 from torchtitan.models.common.linear import Linear  # noqa: E402
 from torchtitan.models.deepseek_v3.attention import DeepSeekMLAAttention  # noqa: E402
 
@@ -184,9 +188,18 @@ class QKClipTest(unittest.TestCase):
         )
 
 
+if TYPE_CHECKING:
+    _DTensorTestBase = unittest.TestCase
+else:
+    _DTensorTestBase = DTensorTestBase
+
+
 @pytest.mark.multi_gpu
 @unittest.skipUnless(torch.npu.device_count() >= 2, "requires two NPU devices")
-class QKClipDistributedTest(DTensorTestBase):
+class QKClipDistributedTest(_DTensorTestBase):
+
+    rank: int
+
     @property
     def world_size(self) -> int:
         return 2

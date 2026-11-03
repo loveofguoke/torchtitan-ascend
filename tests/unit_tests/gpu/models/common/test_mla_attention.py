@@ -7,9 +7,12 @@
 
 import unittest
 from collections import Counter
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
+
+
 # Load the NPU backend before spmd_types so spawned imports cannot re-enter it.
 import torch  # usort: skip
 import torch_npu  # noqa: F401  # usort: skip
@@ -22,14 +25,17 @@ from torchtitan_ascend import setup
 # Native DTensor workers import this module without pytest conftest.
 setup()
 
-from torch.testing._internal.distributed._tensor.common_dtensor import (  # noqa: E402
+from torch.testing._internal.distributed._tensor.common_dtensor import (
     DTensorTestBase,
     with_comms,
 )
 
 from torchtitan.distributed.parallelism_context import ParallelismContext  # noqa: E402
 from torchtitan.models.base.module import Module  # noqa: E402
-from torchtitan.models.common.attention import FlexInnerAttention, MLAAttention  # noqa: E402
+from torchtitan.models.common.attention import (  # noqa: E402
+    FlexInnerAttention,
+    MLAAttention,
+)
 from torchtitan.models.common.attention.cp_mla import (  # noqa: E402
     AllGatherKVMLAFlexAttention,
     UlyssesMLAAttention,
@@ -41,9 +47,18 @@ from torchtitan.models.common.decoder_sharding import (  # noqa: E402
 from torchtitan.models.common.linear import Linear  # noqa: E402
 
 
+if TYPE_CHECKING:
+    _DTensorTestBase = unittest.TestCase
+else:
+    _DTensorTestBase = DTensorTestBase
+
+
 @pytest.mark.multi_gpu
 @unittest.skipUnless(torch.npu.device_count() >= 4, "requires four Ascend NPUs")
-class TestMLAAttentionSharding(DTensorTestBase):
+class TestMLAAttentionSharding(_DTensorTestBase):
+
+    rank: int
+
     @property
     def device_type(self) -> str:
         return "npu"

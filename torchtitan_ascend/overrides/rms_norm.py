@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """RMSNorm on ``torch_npu.npu_rms_norm``.
 """
 
@@ -12,6 +13,10 @@ from torchtitan.models.common.nn_modules import RMSNorm
 
 
 class AscendRMSNorm(RMSNorm):
+
+    weight: torch.Tensor | None
+    eps: float | None
+
     @dataclass(kw_only=True, slots=True)
     class Config(RMSNorm.Config):
         pass

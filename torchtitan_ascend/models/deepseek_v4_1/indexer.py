@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Add FULL/REINDEX/REUSE hierarchical indexer modes;
@@ -59,11 +61,15 @@ from torchtitan.models.common.rope import RoPE
 from torchtitan.models.deepseek_v4.compressor import (
     compressed_cu_seqlens,
     compressed_gather_indices,
+    Indexer,
 )
-from torchtitan.models.deepseek_v4.compressor import Indexer
 
 if TYPE_CHECKING:
     from torchtitan.models.common.attention import VarlenAttentionMetadata
+
+
+if TYPE_CHECKING:
+    from torchtitan.models.base.sharding import ShardingConfig
 
 
 class IndexerMode(StrEnum):
@@ -184,7 +190,9 @@ class Selector(Module):
 
         last = newest_T1 // block_size
         pin_TB = torch.arange(num_blocks, device=scores_TN.device).unsqueeze(0) == last
-        block_scores_TB = block_scores_TB.masked_fill(pin_TB & newest_valid_T1, torch.inf)
+        block_scores_TB = block_scores_TB.masked_fill(
+            pin_TB & newest_valid_T1, torch.inf
+        )
 
         top = block_scores_TB.topk(min(topk_blocks, num_blocks), dim=-1)
         keep_TB = torch.zeros_like(block_scores_TB, dtype=torch.bool).scatter_(
@@ -232,7 +240,9 @@ class Selector(Module):
         with a candidate pool only).
         """
         num_cmp = idx_k.size(0)
-        max_seqlen = idx_q.size(0) if attention_metadata is None else attention_metadata.max_k
+        max_seqlen = (
+            idx_q.size(0) if attention_metadata is None else attention_metadata.max_k
+        )
         cu_seqlens = (
             torch.tensor([0, idx_q.size(0)], dtype=torch.int32, device=idx_q.device)
             if attention_metadata is None
@@ -261,7 +271,11 @@ class Selector(Module):
         )
 
         with torch.no_grad():
-            scores_THN = torch.einsum("thd,nd->thn", idx_q, idx_k)
+            scores_THN = torch.einsum(
+                "thd,nd->thn",  # codespell:ignore thn
+                idx_q,
+                idx_k,
+            )
             scores_TN = (scores_THN.relu() * weights.unsqueeze(-1)).sum(dim=1)
             scores_TN = scores_TN.masked_fill(~visible_TN, -torch.inf)
 
@@ -281,7 +295,9 @@ class Selector(Module):
                 scores_TN = scores_TN.masked_fill(~candidates, -torch.inf)
 
             topk = min(self.index_topk, max_seqlen // self.compress_ratio, num_cmp)
-            selected_TK = scores_TN.topk(topk, dim=-1, sorted=False).indices.to(torch.int32)
+            selected_TK = scores_TN.topk(topk, dim=-1, sorted=False).indices.to(
+                torch.int32
+            )
             selected_valid_TK = torch.isfinite(scores_TN.gather(-1, selected_TK))
             local_TK = torch.where(selected_valid_TK, selected_TK - pool_start_T1, -1)
             topk_indices_TK = local_TK.sort(dim=-1, descending=True).values
@@ -308,7 +324,7 @@ class HierarchicalIndexer(Indexer):
 
     @dataclass(kw_only=True, slots=True)
     class Config(Indexer.Config):
-        # Re-declared so Configurable wires build() to this subclass.
+        # Redeclared so Configurable wires build() to this subclass.
         mode: IndexerMode = REUSE
         compress_ratio: int = 0
         index_topk: int = 0
@@ -317,10 +333,18 @@ class HierarchicalIndexer(Indexer):
         k_norm: RMSNorm.Config | None = None
         # V4.1 indexers never own a compressor: FULL projects the shared
         # latent, REINDEX/REUSE read the shared chain.
-        compressor: None = None  # pyrefly: ignore [bad-override]
-        rope: RoPE.Config | None = None  # pyrefly: ignore [bad-override]
-        wq_b: Linear.Config | None = None  # pyrefly: ignore [bad-override]
-        weights_proj: Linear.Config | None = None  # pyrefly: ignore [bad-override]
+        compressor: None = None
+        rope: RoPE.Config | None = None
+        wq_b: Linear.Config | None = None
+        weights_proj: Linear.Config | None = None
+
+        if TYPE_CHECKING:
+            # Inherited from TorchTitan; keep runtime dataclass fields unchanged.
+            param_init: dict | None = None
+            sharding_config: ShardingConfig | None = None
+            num_index_heads: int = 64
+            index_head_dim: int = 128
+            rope_head_dim: int = 64
 
     def __init__(self, config: Config):
         # Bypass V4's __init__, which always builds the per-layer compressor.
@@ -389,9 +413,9 @@ class HierarchicalIndexer(Indexer):
             return idx_k, topk_indices, topk_scores, candidates
 
         if self.mode is FULL:
-            assert latent is not None, (
-                "A Full Mode indexer projects its keys from the compressor latent."
-            )
+            assert (
+                latent is not None
+            ), "A Full Mode indexer projects its keys from the compressor latent."
             idx_k = self.k_norm(self.wk(latent))
             # Entry j stands for the group starting at token j * ratio; index
             # keys rotate at the same per-slot group starts as the compressed
@@ -403,9 +427,7 @@ class HierarchicalIndexer(Indexer):
                 )
 
                 num_slots = latent.size(0)
-                slots = torch.arange(
-                    num_slots, dtype=torch.int32, device=idx_k.device
-                )
+                slots = torch.arange(num_slots, dtype=torch.int32, device=idx_k.device)
                 cmp_cu, _, start_tokens = compression_group_layout(
                     attention_metadata.cu_seq_q, self.compress_ratio, slots
                 )
@@ -413,9 +435,7 @@ class HierarchicalIndexer(Indexer):
                 group_positions = positions[start_tokens]
             else:
                 group_positions = positions[:: self.compress_ratio]
-            idx_k = self._rope_partial(
-                idx_k.unsqueeze(1), group_positions
-            ).squeeze(1)
+            idx_k = self._rope_partial(idx_k.unsqueeze(1), group_positions).squeeze(1)
         else:
             assert idx_k is not None, (
                 "A Reindex Mode indexer rescores the shared index keys, which "
@@ -424,16 +444,16 @@ class HierarchicalIndexer(Indexer):
 
         idx_q = self.wq_b(qr).unflatten(-1, (self.num_index_heads, self.index_head_dim))
         idx_q_nope, idx_q_rope = torch.split(
-            idx_q, [self.index_head_dim - self.rope_head_dim, self.rope_head_dim], dim=-1
+            idx_q,
+            [self.index_head_dim - self.rope_head_dim, self.rope_head_dim],
+            dim=-1,
         )
         remat.recompute_needs_tensor(idx_q_nope, idx_q_rope)
         idx_q_rope = self.rope(idx_q_rope, positions=positions)
         idx_q = torch.cat([idx_q_nope, idx_q_rope], dim=-1)
         weights = self.weights_proj(x)
         remat.recompute_needs_tensor(weights)
-        weights = weights * (
-            self.index_head_dim**-0.5 * self.num_index_heads**-0.5
-        )
+        weights = weights * (self.index_head_dim**-0.5 * self.num_index_heads**-0.5)
 
         topk_indices, topk_scores, candidates = self.selector(
             idx_q,
@@ -443,3 +463,6 @@ class HierarchicalIndexer(Indexer):
             candidates=candidates,
         )
         return idx_k, topk_indices, topk_scores, candidates
+
+    if TYPE_CHECKING:
+        __call__ = forward

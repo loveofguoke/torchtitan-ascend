@@ -1,13 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
 """Ascend MC2 routed experts with fused communication and grouped matmul."""
 
 from dataclasses import dataclass
+from typing import cast
 
 import torch
 import torch.distributed as dist
 import torch_remat as remat
 from torchtitan.config import derive, override
 from torchtitan.distributed.spmd_types import maybe_set_sparse_mesh, spmd_sparse_mesh
+from torchtitan.models.common.linear import GroupedLinear
 from torchtitan.models.common.moe import RoutedExperts
+from torchtitan.models.common.moe.token_dispatcher import AllToAllTokenDispatcher
 
 from torchtitan_ascend.overrides.gemm_mc2 import (
     all2all_grouped_matmul,
@@ -30,6 +34,12 @@ class AscendMC2RoutedExperts(RoutedExperts):
     and w2/combine segments follow the dispatcher remat policy as whole regions.
     The default policy retains both, including w13 fused with dispatch.
     """
+
+    output_postprocess: torch.nn.Module | None
+    token_dispatcher: AllToAllTokenDispatcher
+    w13: GroupedLinear
+    w2: GroupedLinear
+    activation_fn: torch.nn.Module
 
     @dataclass(kw_only=True, slots=True)
     class Config(RoutedExperts.Config):
@@ -75,7 +85,9 @@ class AscendMC2RoutedExperts(RoutedExperts):
             self._dispatch_w13,
             self.token_dispatcher.remat_region_name("dispatch"),
             recompute=self.token_dispatcher.remat_should_recompute("dispatch"),
-        )(x_TD, topk_expert_ids_TK, self.w13.weight, num_local_tokens_per_expert_E)
+        )(
+            x_TD, topk_expert_ids_TK, self.w13.weight, num_local_tokens_per_expert_E
+        )
         remat.recompute_needs_tensor(gate_up_R2F, offsets_e)
 
         with maybe_set_sparse_mesh():
@@ -127,12 +139,15 @@ class AscendMC2RoutedExperts(RoutedExperts):
             recv_counts = recv_counts_EP_e.reshape(-1)
             offsets_e = recv_counts_EP_e.sum(dim=0).cumsum(dim=0, dtype=torch.int32)
             weight_eD2F = weight_e2FD.flatten(1, 2).transpose(-2, -1)
-            gate_up_R2F = all2all_grouped_matmul(
-                inputs=routed_input_ND.bfloat16(),
-                weights=weight_eD2F.bfloat16().contiguous(),
-                group=ep_group,
-                send_counts=send_counts,
-                recv_counts=recv_counts,
+            gate_up_R2F = cast(
+                torch.Tensor,
+                all2all_grouped_matmul(
+                    inputs=routed_input_ND.bfloat16(),
+                    weights=weight_eD2F.bfloat16().contiguous(),
+                    group=ep_group,
+                    send_counts=send_counts,
+                    recv_counts=recv_counts,
+                ),
             )
             gate_up_R2F = gate_up_R2F.unflatten(-1, (2, self.w13.out_features))
 

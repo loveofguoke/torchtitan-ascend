@@ -5,10 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 
 import unittest
+from typing import TYPE_CHECKING
 
 import pytest
 import torch
-import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.tensor import Shard
 from torch.testing._internal.distributed._tensor.common_dtensor import (
@@ -16,18 +16,10 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     with_comms,
 )
 from torchtitan.config import ParallelismConfig
-from torchtitan.distributed.fsdp import (
-    apply_fsdp_to_decoder,
-    resolve_fsdp_mesh,
-    resolve_sparse_fsdp_mesh,
-)
+from torchtitan.distributed.fsdp import apply_fsdp_to_decoder, resolve_fsdp_mesh
 from torchtitan.distributed.parallelism_context import ParallelismContext
-from torchtitan.distributed.utils import clip_grad_norm_
-from torchtitan.models.base.sharding import ShardingConfig
 from torchtitan.models.common.linear import Linear
 from torchtitan.models.common.moe import MoE
-from torchtitan.models.common.moe.sharding import replicated_param_placement_sparse
-from torchtitan.models.common.nn_modules import RMSNorm
 from torchtitan.models.qwen3.model import Qwen3Model
 
 
@@ -120,8 +112,16 @@ def _shard_dim(param: torch.Tensor) -> int | None:
     return None
 
 
-class TestApplyFsdpMoESharding(DTensorTestBase):
+if TYPE_CHECKING:
+    _DTensorTestBase = unittest.TestCase
+else:
+    _DTensorTestBase = DTensorTestBase
+
+
+class TestApplyFsdpMoESharding(_DTensorTestBase):
     """Test apply_fsdp_to_decoder expert sharding behavior with ep_degree=1 and ep_degree>1."""
+
+    device_type: str
 
     @property
     def world_size(self):
@@ -254,8 +254,10 @@ class TestApplyFsdpMoESharding(DTensorTestBase):
         self.assertEqual(_get_expert_shard_dims(model), (0, 0))
 
 
-class TestLinearStackingDistributed(DTensorTestBase):
+class TestLinearStackingDistributed(_DTensorTestBase):
     """Distributed coverage for stacked FFNs and ordinary linear weights."""
+
+    device_type: str
 
     @property
     def world_size(self):

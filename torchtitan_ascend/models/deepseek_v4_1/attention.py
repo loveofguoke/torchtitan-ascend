@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Adapt DeepSeek V4 attention projections to CSA2;
@@ -44,6 +46,7 @@ offsets per ratio with ``compressed_cu_seqlens(cu_q, ratio)``.
 """
 
 from dataclasses import dataclass
+from typing import cast, TYPE_CHECKING
 
 import spmd_types as spmd
 import torch
@@ -54,14 +57,20 @@ from torchtitan.distributed.spmd_types import spmd_dense_sp_enabled, spmd_mesh_g
 from torchtitan.models.common.attention import VarlenAttentionMetadata
 from torchtitan.models.common.attn_gym import AuxRequest, gather_attn
 from torchtitan.models.deepseek_v4.attention import (
+    _assert_spmd_attention_type,
     DeepSeekV4Attention,
     DSV4InnerAttention,
-    _assert_spmd_attention_type,
 )
 from torchtitan.models.deepseek_v4.compressor import compressed_cu_seqlens
 
 from .compressor import Compressor
 from .indexer import HierarchicalIndexer
+
+
+if TYPE_CHECKING:
+    from torchtitan.models.common import Linear, RMSNorm, RoPE
+    from torchtitan.models.deepseek_v4.attention import SlidingWindowAttention
+    from torchtitan.models.deepseek_v4.compressor import SparseIndexerLoss
 
 
 class V41InnerAttention(DSV4InnerAttention):
@@ -73,6 +82,12 @@ class V41InnerAttention(DSV4InnerAttention):
     compressed pool is empty. V4.1's ratio-1 CSA2 layers own a non-empty pool,
     so every ratio derives its real per-document pool offsets here.
     """
+
+    aux_loss: "SparseIndexerLoss | None"
+    training: bool
+    window_size: int
+    softmax_scale: float
+    compress_ratio: int
 
     def _gather_attn(
         self,
@@ -112,7 +127,9 @@ class V41InnerAttention(DSV4InnerAttention):
             if aux_loss is not None:
                 assert topk_scores_TK is not None and aux.lse is not None
                 if aux_loss_denominator is None:
-                    raise RuntimeError("SparseIndexerLoss requires aux_loss_denominator.")
+                    raise RuntimeError(
+                        "SparseIndexerLoss requires aux_loss_denominator."
+                    )
                 out_THD = aux_loss(
                     q_THD.detach(),
                     cmp_k_SD.detach(),
@@ -142,6 +159,14 @@ class CompressedSparseAttention2(V41InnerAttention):
     @dataclass(kw_only=True, slots=True)
     class Config(V41InnerAttention.Config):
         pass
+
+        if TYPE_CHECKING:
+            # Inherited from TorchTitan; keep runtime dataclass fields unchanged.
+            window_size: int
+            compress_ratio: int
+            softmax_scale: float
+            index_topk: int
+            aux_loss: SparseIndexerLoss.Config | None = None
 
     def forward(
         self,
@@ -174,6 +199,9 @@ class CompressedSparseAttention2(V41InnerAttention):
             padding_mask_T=padding_mask_T,
         )
 
+    if TYPE_CHECKING:
+        __call__ = forward
+
 
 class Attention(DeepSeekV4Attention):
     """V4.1 attention wrapper: V4's projections, V4.1's cross-layer state.
@@ -187,11 +215,58 @@ class Attention(DeepSeekV4Attention):
     fold/restore.
     """
 
+    rope_head_dim: int
+    head_dim: int
+    norm_eps: float
+    compress_ratio: int
+    n_groups: int
+    n_heads: int
+    o_lora_rank: int
+    wq_a: "Linear"
+    wq_b: "Linear"
+    wkv: "Linear"
+    wo_a: "Linear"
+    wo_b: "Linear"
+    attn_sink: "Linear"
+    q_norm: "RMSNorm"
+    kv_norm: "RMSNorm"
+    rope: "RoPE"
+    compressor: Compressor | None
+    indexer: HierarchicalIndexer | None
+    inner_attention: "CompressedSparseAttention2 | SlidingWindowAttention"
+
     @dataclass(kw_only=True, slots=True)
     class Config(DeepSeekV4Attention.Config):
-        inner_attention: V41InnerAttention.Config  # pyrefly: ignore [bad-override]
-        compressor: Compressor.Config | None = None  # pyrefly: ignore [bad-override]
-        indexer: HierarchicalIndexer.Config | None = None  # pyrefly: ignore [bad-override]
+        inner_attention: V41InnerAttention.Config
+        compressor: Compressor.Config | None = None
+        indexer: HierarchicalIndexer.Config | None = None
+
+        if TYPE_CHECKING:
+            # Inherited from TorchTitan; keep runtime dataclass fields unchanged.
+            n_heads: int
+            dim: int
+            rope: RoPE.Config
+            head_dim: int = 512
+            rope_head_dim: int = 64
+            q_lora_rank: int = 1024
+            o_lora_rank: int = 1024
+            n_groups: int = 8
+            compress_ratio: int = 1
+            norm_eps: float = 1e-06
+            index_n_heads: int = 64
+            index_head_dim: int = 128
+            n_layers: int = 4
+            layer_id: int = 0
+            mask_type: str = "causal"
+            wq_a: Linear.Config
+            q_norm: RMSNorm.Config
+            wq_b: Linear.Config
+            wkv: Linear.Config
+            kv_norm: RMSNorm.Config
+            wo_a: Linear.Config
+            wo_b: Linear.Config
+            attn_sink: Linear.Config
+            compressor_128: Compressor.Config | None = None
 
     def forward(
         self,
@@ -290,7 +365,7 @@ class Attention(DeepSeekV4Attention):
                 padding_mask_T=padding_mask,
             )
         else:
-            o = self.inner_attention(
+            o = cast("SlidingWindowAttention", self.inner_attention)(
                 q,
                 kv,
                 attn_sink_param,
@@ -318,6 +393,9 @@ class Attention(DeepSeekV4Attention):
             _assert_spmd_attention_type(o, tp=spmd.S(1))
         o = self.wo_b(o)
         return o, cmp_k, idx_k, topk_indices, topk_scores, candidates
+
+    if TYPE_CHECKING:
+        __call__ = forward
 
 
 __all__ = [

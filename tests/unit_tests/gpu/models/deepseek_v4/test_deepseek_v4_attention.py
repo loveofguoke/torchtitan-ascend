@@ -129,7 +129,12 @@ def test_matches_dense_masked_attention(cls, ratio, device, dtype, tol):
             cmp_allowed[rows[cmp_topk >= 0], cmp_topk[cmp_topk >= 0]] = True
             cmp_allowed &= causal_cmp_allowed(ratio)
 
-    ref = dense_attention(*ref_inputs[:3], cmp_allowed, ref_inputs[3])
+        case _:
+            raise AssertionError(f"Unexpected attention module: {type(module)}")
+
+    ref = dense_attention(
+        ref_inputs[0], ref_inputs[1], ref_inputs[2], cmp_allowed, ref_inputs[3]
+    )
     diff_inputs = [t for t in inputs if t.requires_grad]
     diff_ref_inputs = [t for t in ref_inputs if t.requires_grad]
     grads = torch.autograd.grad(out.sum(), diff_inputs)

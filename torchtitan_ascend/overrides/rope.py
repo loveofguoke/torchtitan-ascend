@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Portions derived from TorchTitan retain its BSD-3-Clause license;
+# see LICENSE-BSD-3-Clause in the repository root.
 """Rotary embeddings with real-valued caches and Ascend rotary multiplication.
 """
 
@@ -9,10 +15,10 @@ import torch
 from torch_npu import npu_rotary_mul as _npu_rotary_mul
 from torchtitan.config import derive, override
 from torchtitan.models.common.rope import (
-    ComplexRoPE,
-    CosSinRoPE,
     _maybe_check_max_pos,
     _reshape_for_broadcast,
+    ComplexRoPE,
+    CosSinRoPE,
 )
 
 from torchtitan_ascend.device import require_device
@@ -32,6 +38,8 @@ def _rotary_kernel(
 
 class AscendComplexRoPE(ComplexRoPE):
     """``ComplexRoPE`` semantics with a real ``(L, dim/2, 2)`` [cos, sin] cache."""
+
+    cache: torch.Tensor
 
     @dataclass(kw_only=True, slots=True)
     class Config(ComplexRoPE.Config):
@@ -65,8 +73,7 @@ class AscendComplexRoPE(ComplexRoPE):
         *,
         inverse: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        """(a + ib)(c + is) = (ac - bs) + i(as + bc) on adjacent (even, odd) pairs.
-        """
+        """(a + ib)(c + is) = (ac - bs) + i(as + bc) on adjacent (even, odd) pairs."""
         cos = rope_cache[..., 0]
         sin = rope_cache[..., 1]
         if inverse:

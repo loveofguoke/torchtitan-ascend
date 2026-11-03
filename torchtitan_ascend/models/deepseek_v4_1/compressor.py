@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Remove absolute positional embeddings and overlap candidates;
@@ -30,7 +32,7 @@ document boundaries), same pre-norm RoPE split. V4.1 differs in three ways,
 all expressed as overrides:
 
 - No absolute positional embedding (``ape``) and no overlap candidate, so
-  ``__init__`` is re-declared without them.
+  ``__init__`` is redeclared without them.
 - Layers are *source* or *reuse*: a source pools its own hidden states, a
   reuse layer is handed the shared compressed KV and returns it unchanged.
 - forward returns ``(cmp_k, latent)``: the RoPE-rotated KV for the attention
@@ -41,6 +43,7 @@ Shape suffixes: ``T`` = packed tokens, ``G`` = compressed groups,
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import torch
 import torch_remat as remat
@@ -52,18 +55,30 @@ from torchtitan.models.common.rope import RoPE
 from torchtitan.models.deepseek_v4.compressor import Compressor
 
 
+if TYPE_CHECKING:
+    from torchtitan.models.base.sharding import ShardingConfig
+
+
 class Compressor(Compressor):
     """V4.1 compressor: V4's pooling, source/reuse wiring, no ape/overlap."""
 
     @dataclass(kw_only=True, slots=True)
     class Config(Compressor.Config):
-        # Re-declared so Configurable wires build() to this subclass. Source
+        # Redeclared so Configurable wires build() to this subclass. Source
         # layers own the projections; reuse layers hold no weights.
         is_source: bool = True
-        rope: RoPE.Config | None = None  # pyrefly: ignore [bad-override]
-        wkv: Linear.Config | None = None  # pyrefly: ignore [bad-override]
-        wgate: Linear.Config | None = None  # pyrefly: ignore [bad-override]
-        norm: RMSNorm.Config | None = None  # pyrefly: ignore [bad-override]
+        rope: RoPE.Config | None = None
+        wkv: Linear.Config | None = None
+        wgate: Linear.Config | None = None
+        norm: RMSNorm.Config | None = None
+
+        if TYPE_CHECKING:
+            # Inherited from TorchTitan; keep runtime dataclass fields unchanged.
+            param_init: dict | None = None
+            sharding_config: ShardingConfig | None = None
+            head_dim: int = 512
+            rope_head_dim: int = 64
+            compress_ratio: int = 4
 
     def __init__(self, config: Config):
         # Bypass V4's __init__, which always builds wkv/wgate/norm and the
@@ -165,9 +180,7 @@ class Compressor(Compressor):
                 )
                 group_G = slot_G - cmp_cu[doc_G]
                 start_G = torch.where(slot_G < cmp_cu[-1], start_G, 0)
-                token_GR = start_G.unsqueeze(1) + torch.arange(
-                    ratio, device=x.device
-                )
+                token_GR = start_G.unsqueeze(1) + torch.arange(ratio, device=x.device)
                 kv, score = kv[token_GR], score[token_GR]
                 comp_positions = (
                     positions[start_G] if positions is not None else group_G * ratio
@@ -181,3 +194,6 @@ class Compressor(Compressor):
         latent_rope = self.rope(latent_rope.unsqueeze(1), positions=comp_positions)
         rotated = torch.cat([latent_nope, latent_rope.squeeze(1)], dim=-1)
         return rotated, latent
+
+    if TYPE_CHECKING:
+        __call__ = forward

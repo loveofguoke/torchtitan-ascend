@@ -6,6 +6,7 @@
 
 import copy
 import unittest
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import spmd_types as spmd
@@ -29,10 +30,17 @@ from torchtitan.models.common.decoder_sharding import (
 )
 
 
-@unittest.skipUnless(
-    torch.accelerator.device_count() >= 2, "requires two devices"
-)
-class TestTensorParallelFeedForwardNumerics(DTensorTestBase):
+if TYPE_CHECKING:
+    _DTensorTestBase = unittest.TestCase
+else:
+    _DTensorTestBase = DTensorTestBase
+
+
+@unittest.skipUnless(torch.accelerator.device_count() >= 2, "requires two devices")
+class TestTensorParallelFeedForwardNumerics(_DTensorTestBase):
+
+    device_type: str
+
     @property
     def world_size(self) -> int:
         return 2

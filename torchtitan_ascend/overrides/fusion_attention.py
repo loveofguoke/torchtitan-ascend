@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from typing import TYPE_CHECKING
+
 import spmd_types as spmd
 import torch
 import torch.nn.functional as F
@@ -80,7 +82,14 @@ class _OffloadedFusionAttention(torch.autograd.Function):
     def backward(ctx, grad_BHTK):
         import torch_npu
 
-        q_BHTK, k_BHSK, v_BHSK, output_BHTK, softmax_max, softmax_sum = ctx.saved_tensors
+        (
+            q_BHTK,
+            k_BHSK,
+            v_BHSK,
+            output_BHTK,
+            softmax_max,
+            softmax_sum,
+        ) = ctx.saved_tensors
         grad_q, grad_k, grad_v, *_ = torch_npu.npu_fusion_attention_grad(
             q_BHTK,
             k_BHSK,
@@ -102,7 +111,9 @@ class _OffloadedFusionAttention(torch.autograd.Function):
 spmd.register_local_autograd_function(_OffloadedFusionAttention)
 
 
-def fusion_attention(q_THK, k_THK, v_THV, attention_metadata, scale=None, *, cpu_offload=True):
+def fusion_attention(
+    q_THK, k_THK, v_THV, attention_metadata, scale=None, *, cpu_offload=True
+):
     """Preserve the token mask and MLA's unequal query/value head dims."""
     import torch_npu
 
@@ -115,8 +126,14 @@ def fusion_attention(q_THK, k_THK, v_THV, attention_metadata, scale=None, *, cpu
     k_1HSK = k_THK.transpose(0, 1).unsqueeze(0).contiguous()
     v_1HSK = v_THK.transpose(0, 1).unsqueeze(0).contiguous()
     scale = q_THK.shape[-1] ** -0.5 if scale is None else scale
-    if cpu_offload and torch.is_grad_enabled() and any(t.requires_grad for t in (q_1HTK, k_1HSK, v_1HSK)):
-        out_1HTK = _OffloadedFusionAttention.apply(q_1HTK, k_1HSK, v_1HSK, mask_1HSS, scale)
+    if (
+        cpu_offload
+        and torch.is_grad_enabled()
+        and any(t.requires_grad for t in (q_1HTK, k_1HSK, v_1HSK))
+    ):
+        out_1HTK = _OffloadedFusionAttention.apply(
+            q_1HTK, k_1HSK, v_1HSK, mask_1HSS, scale
+        )
     else:
         out_1HTK = torch_npu.npu_fusion_attention(
             q_1HTK,
@@ -170,7 +187,12 @@ class AscendCFlexInnerAttention(FlexInnerAttention):
             )
         return fusion_attention(q_THK, k_THK, v_THV, attention_metadata, scale)
 
+    if TYPE_CHECKING:
+        __call__ = forward
 
-@override(target=FlexInnerAttention.Config, exact=True, description="Ascend C attention")
+
+@override(
+    target=FlexInnerAttention.Config, exact=True, description="Ascend C attention"
+)
 def ascendc_fusion_attention(config):
     return derive(config, AscendCFlexInnerAttention.Config)

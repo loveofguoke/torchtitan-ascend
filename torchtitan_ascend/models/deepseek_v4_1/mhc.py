@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Adapt HcPre for Single-Pass pre-mix propagation;
@@ -32,6 +34,7 @@ and emits its own coefficients for the next sublayer to consume.
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import torch
 import torch.nn.functional as F
@@ -41,10 +44,27 @@ from torchtitan.models.deepseek_v4.mhc import HcPost, HcPre, HcSplitSinkhorn
 __all__ = ["HcPre", "HcPost"]
 
 
+if TYPE_CHECKING:
+    from torchtitan.models.base.sharding import ShardingConfig
+
+
 class _V41Sinkhorn(HcSplitSinkhorn):
+
+    hc_mult: int
+    eps: float
+    sinkhorn_iters: int
+
     @dataclass(kw_only=True, slots=True)
     class Config(HcSplitSinkhorn.Config):
         pass
+
+        if TYPE_CHECKING:
+            # Inherited from TorchTitan; keep runtime dataclass fields unchanged.
+            param_init: dict | None = None
+            sharding_config: ShardingConfig | None = None
+            hc_mult: int = 4
+            sinkhorn_iters: int = 20
+            eps: float = 1e-06
 
     def forward(self, mixes, hc_scale, hc_base):
         """Apply V4.1 Sinkhorn normalization with the official first-row epsilon semantics."""
@@ -60,8 +80,7 @@ class _V41Sinkhorn(HcSplitSinkhorn):
             + eps
         )
         post = 2 * torch.sigmoid(
-            post * hc_scale[1]
-            + hc_base[hc : 2 * hc].view(*([1] * (post.ndim - 1)), hc)
+            post * hc_scale[1] + hc_base[hc : 2 * hc].view(*([1] * (post.ndim - 1)), hc)
         )
         comb = comb * hc_scale[2] + hc_base[2 * hc :].view(
             *([1] * (comb.ndim - 2)), hc, hc
@@ -78,10 +97,25 @@ class _V41Sinkhorn(HcSplitSinkhorn):
 class HcPre(HcPre):
     """V4.1 HcPre: collapse with the incoming ``pre_mix``, emit the next one."""
 
+    norm_eps: float
+    hc_fn: torch.Tensor
+    hc_scale: torch.Tensor
+    hc_base: torch.Tensor
+
     @dataclass(kw_only=True, slots=True)
     class Config(HcPre.Config):
-        # Re-declared so Configurable wires build() to this subclass.
+        # Redeclared so Configurable wires build() to this subclass.
         pass
+
+        if TYPE_CHECKING:
+            # Inherited from TorchTitan; keep runtime dataclass fields unchanged.
+            param_init: dict | None = None
+            sharding_config: ShardingConfig | None = None
+            hc_mult: int = 4
+            dim: int
+            sinkhorn_iters: int = 20
+            eps: float = 1e-06
+            norm_eps: float = 1e-06
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -130,3 +164,6 @@ class HcPre(HcPre):
         """Collapse the branches into one sublayer input."""
         y = torch.sum(pre_mix.unsqueeze(-1) * x.float(), dim=-2)
         return y.to(x.dtype)
+
+    if TYPE_CHECKING:
+        __call__ = forward

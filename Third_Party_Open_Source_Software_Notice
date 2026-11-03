@@ -14,6 +14,8 @@
 
 `torchtitan_ascend/overrides/kda.py` 的算子组合参考 flash-linear-attention-npu 的 `examples/chunk_kda.py`，版权归 Tianjin University，采用 BSD-3-Clause，完整条款见 LICENSE-BSD-3-Clause。
 
+`torchtitan_ascend/overrides/kda.py`、`torchtitan_ascend/overrides/token_dispatcher.py` 和 `torchtitan_ascend/overrides/rope.py` 的组件适配包含来自 TorchTitan 的代码片段，相关版权归 Meta Platforms, Inc. and affiliates，上游片段沿用 BSD-3-Clause，完整条款见 LICENSE-BSD-3-Clause。
+
 融合 KDA 后端依赖 flash-linear-attention-npu（https://github.com/flashserve/flash-linear-attention-npu）。该组件的许可证以其仓库 LICENSE、LICENSES 和 NOTICE 为准；本仓不包含其 AscendC 算子源码或二进制。
 
 `torchtitan_ascend/models/common/linear_attention.py` 提取自上述 GDN、KDA 卷积适配，沿用 Tianjin University 的 BSD-3-Clause 许可证。

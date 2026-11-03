@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
 # Copyright (c) 2026 Tianjin University
 # SPDX-License-Identifier: BSD-3-Clause
 """Ascend implementations of Kimi Delta Attention components."""
@@ -39,7 +41,9 @@ def _l2norm_bwd(x, dx):
     x_f = x.float()
     norm = torch.sqrt(x_f.pow(2).sum(-1, keepdim=True) + 1e-6)
     q = x_f / norm
-    return ((dx.float() - q * (dx.float() * q).sum(-1, keepdim=True)) / norm).to(dx.dtype)
+    return ((dx.float() - q * (dx.float() * q).sum(-1, keepdim=True)) / norm).to(
+        dx.dtype
+    )
 
 
 def _to_bnsd(x):
@@ -96,11 +100,28 @@ class NpuChunkKDAFunction(torch.autograd.Function):
         k_n = _l2norm(k) if use_qk_l2norm_in_kernel else k
 
         beta_raw = beta
-        beta_f = beta_raw.float().sigmoid() if use_beta_sigmoid_in_kernel else beta_raw.float()
+        beta_f = (
+            beta_raw.float().sigmoid()
+            if use_beta_sigmoid_in_kernel
+            else beta_raw.float()
+        )
 
         g_f = g.float()
 
-        (o, final_state, gk, Aqk, Akk, w, u, qg, kg, v_new, h, initial_state_out) = npu_chunk_kda_fwd(
+        (
+            o,
+            final_state,
+            gk,
+            Aqk,
+            Akk,
+            w,
+            u,
+            qg,
+            kg,
+            v_new,
+            h,
+            initial_state_out,
+        ) = npu_chunk_kda_fwd(
             q_n,
             k_n,
             v,
@@ -156,7 +177,25 @@ class NpuChunkKDAFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, do, dht):
-        (q, k, v, gk, g_f, beta_raw, beta_f, A_log, dt_bias, Aqk, Akk, w, u, qg, kg, v_new, h) = ctx.saved_tensors
+        (
+            q,
+            k,
+            v,
+            gk,
+            g_f,
+            beta_raw,
+            beta_f,
+            A_log,
+            dt_bias,
+            Aqk,
+            Akk,
+            w,
+            u,
+            qg,
+            kg,
+            v_new,
+            h,
+        ) = ctx.saved_tensors
         cu_seqlens = ctx.cu_seqlens
 
         head_dim = q.shape[-1]
@@ -201,7 +240,9 @@ class NpuChunkKDAFunction(torch.autograd.Function):
             float(ctx.scale),
             raw_g=_bwd_in(_to_bnsd(g_f)) if ctx.use_gate_in_kernel else None,
             A_log=A_log,
-            dt_bias=dt_bias.reshape(q.shape[2], head_dim) if dt_bias is not None else None,
+            dt_bias=dt_bias.reshape(q.shape[2], head_dim)
+            if dt_bias is not None
+            else None,
             chunk_size=ctx.chunk_size,
             safe_gate=ctx.safe_gate,
             lower_bound=ctx.lower_bound,
@@ -237,7 +278,9 @@ class NpuChunkKDAFunction(torch.autograd.Function):
             None,  # lower_bound
             None,  # use_gate_in_kernel
             dA.to(ctx.A_log_in_dt) if dA is not None else None,  # A_log
-            dbias.reshape(-1).to(ctx.dt_bias_in_dt) if dbias is not None else None,  # dt_bias
+            dbias.reshape(-1).to(ctx.dt_bias_in_dt)
+            if dbias is not None
+            else None,  # dt_bias
             None,  # use_qk_l2norm_in_kernel
             None,  # use_beta_sigmoid_in_kernel
         )
@@ -274,7 +317,9 @@ def npu_chunk_kda(
 ):
     """Run fla_npu's fused AscendC KDA with head_dim=128."""
     if q.shape[-1] != 128:
-        raise ValueError(f"NPU KDA backend requires head_dim == 128, got {q.shape[-1]}.")
+        raise ValueError(
+            f"NPU KDA backend requires head_dim == 128, got {q.shape[-1]}."
+        )
     A_log = kwargs.pop("A_log", None)
     dt_bias = kwargs.pop("dt_bias", None)
     if disable_recompute is not False:
@@ -377,7 +422,8 @@ class AscendKDAKernel(KDAKernel):
         composite stays for the context-parallel core.
         """
         gate_1THK = self.lower_bound * torch.sigmoid(
-            torch.exp(A_log_H.float()).unsqueeze(-1).unsqueeze(0) * (raw_gate_1THK.float() + dt_bias_HK.float())
+            torch.exp(A_log_H.float()).unsqueeze(-1).unsqueeze(0)
+            * (raw_gate_1THK.float() + dt_bias_HK.float())
         )
         return (
             _l2norm(q_1THK),
@@ -418,8 +464,13 @@ class AscendInnerKDA(InnerKDA):
         *,
         attention_metadata: LinearAttentionMetadata | None,
     ) -> torch.Tensor:
-        if attention_metadata is not None and type(attention_metadata) is not LinearAttentionMetadata:
-            raise NotImplementedError("fla-npu KDA does not support context-parallel attention metadata")
+        if (
+            attention_metadata is not None
+            and type(attention_metadata) is not LinearAttentionMetadata
+        ):
+            raise NotImplementedError(
+                "fla-npu KDA does not support context-parallel attention metadata"
+            )
         return super().forward(
             query_TC,
             key_TC,
@@ -434,10 +485,16 @@ class AscendInnerKDA(InnerKDA):
             attention_metadata=attention_metadata,
         )
 
-    def short_convolution(self, qkv_1TC, conv_weight_C1W, initial_state=None, *, cu_seqlens, routing):
+    def short_convolution(
+        self, qkv_1TC, conv_weight_C1W, initial_state=None, *, cu_seqlens, routing
+    ):
         if initial_state is not None or routing is not None:
-            raise NotImplementedError("fla-npu KDA convolution does not support cached state or context parallelism")
-        return causal_conv1d(qkv_1TC.squeeze(0), conv_weight_C1W, cu_seqlens).unsqueeze(0)
+            raise NotImplementedError(
+                "fla-npu KDA convolution does not support cached state or context parallelism"
+            )
+        return causal_conv1d(qkv_1TC.squeeze(0), conv_weight_C1W, cu_seqlens).unsqueeze(
+            0
+        )
 
 
 @override(

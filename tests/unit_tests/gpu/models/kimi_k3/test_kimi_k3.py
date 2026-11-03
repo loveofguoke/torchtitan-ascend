@@ -12,6 +12,7 @@ import torch
 from torch.nn.attention.flex_attention import BlockMask
 
 from torchtitan.components.optim import DistMuon
+from torchtitan.config import derive
 from torchtitan.config.override import apply_overrides, OverrideConfig
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.models.common.attention import (
@@ -20,16 +21,16 @@ from torchtitan.models.common.attention import (
     MLAAttention,
     VarlenInnerAttention,
 )
-from torchtitan.models.common.attention.kda import KDA
+from torchtitan.models.common.attention.kda import KDA, KDAKernel
 from torchtitan.models.common.feed_forward import DenseFeedForward
 from torchtitan.models.kimi_k3.attention import KimiMLAAttention
 from torchtitan.models.kimi_k3.flavors import _kimi_k3_config, _vision_encoder_config
 from torchtitan.models.kimi_k3.model import KimiK3Model
 from torchtitan.models.kimi_k3.moe import KimiLatentMoE
 from torchtitan.models.kimi_k3.state_dict_adapter import KimiK3StateDictAdapter
-from torchtitan_recipes.tests.models.kimi_k3 import _dist_muon_optimizer
 
 from torchtitan_ascend.overrides.kda import AscendKDAKernel
+from torchtitan_recipes.tests.models.kimi_k3 import _dist_muon_optimizer
 
 
 def _small_model_config(*, attn_backend: str = "flex") -> KimiK3Model.Config:
@@ -314,7 +315,9 @@ class TestKimiK3(unittest.TestCase):
             tensor.detach().clone().requires_grad_() for tensor in actual_inputs
         )
 
-        kernel = AscendKDAKernel.Config(lower_bound=lower_bound).build()
+        kernel = derive(
+            KDAKernel.Config(lower_bound=lower_bound), AscendKDAKernel.Config
+        ).build()
         actual_BLHV = kernel(*actual_inputs)
         expected_BLHV = _kda_recurrent_reference(
             *expected_inputs,

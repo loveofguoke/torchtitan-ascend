@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Add V4.1 flavor and model Config builders;
@@ -38,6 +40,8 @@ from __future__ import annotations
 import dataclasses
 from functools import partial
 
+from typing import cast, Protocol, TYPE_CHECKING
+
 import torch.nn as nn
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.models.common import (
@@ -49,23 +53,19 @@ from torchtitan.models.common import (
 )
 from torchtitan.models.deepseek_v4.attention import SlidingWindowAttention
 from torchtitan.models.deepseek_v4.compressor import SparseIndexerLoss
-from torchtitan.models.deepseek_v4.flavors import _make_v4_moe_config, _output_linear_init
+from torchtitan.models.deepseek_v4.flavors import (
+    _make_v4_moe_config,
+    _output_linear_init,
+)
 
 from .attention import Attention, CompressedSparseAttention2
 from .compressor import Compressor
-from .indexer import (
-    FULL,
-    REINDEX,
-    REUSE,
-    HierarchicalIndexer,
-    Selector,
-)
+from .indexer import FULL, HierarchicalIndexer, REINDEX, REUSE, Selector
 from .mhc import HcPost, HcPre
 from .model import DeepSeekV41Model, DeepSeekV41TransformerBlock
 from .spec import (
     CANDIDATE_BLOCK_SIZE,
-    V41LayerPolicy,
-    V41Spec,
+    layer_policies,
     V41_CANDIDATE_SOURCE_LAYER,
     V41_FULL_COMPRESS_RATIOS,
     V41_FULL_INDEX_SOURCE_LAYERS,
@@ -74,8 +74,16 @@ from .spec import (
     V41_STRIPPED_COMPRESS_RATIOS,
     V41_STRIPPED_INDEX_SOURCE_LAYERS,
     V41_STRIPPED_KV_SOURCE_LAYERS,
-    layer_policies,
+    V41LayerPolicy,
+    V41Spec,
 )
+
+if TYPE_CHECKING:
+
+    class _ContextSpecFactory(Protocol):
+        def __call__(self, *, max_context_length: int) -> V41Spec:
+            ...
+
 
 _LINEAR_INIT = {
     "weight": partial(nn.init.trunc_normal_, std=0.02),
@@ -214,7 +222,9 @@ def _make_attention_config(
             "an indexer cannot own its source-key projection and consume an external key at the same time"
         )
     if policy.is_candidate_source and not policy.owns_compressor:
-        raise ValueError("the candidate-pool source must own the compressed KV it scores")
+        raise ValueError(
+            "the candidate-pool source must own the compressed KV it scores"
+        )
 
     hd = spec.head_dim
     # The attention, compressor and indexer all split the rope slice off by
@@ -348,7 +358,9 @@ def _make_moe_config(spec: V41Spec, layer_id: int, parallelism: ParallelismConfi
     )
 
 
-def _make_v41_config(spec: V41Spec, parallelism: ParallelismConfig) -> DeepSeekV41Model.Config:
+def _make_v41_config(
+    spec: V41Spec, parallelism: ParallelismConfig
+) -> DeepSeekV41Model.Config:
     policies = layer_policies(spec)
 
     rope = ComplexRoPE.Config(
@@ -420,7 +432,9 @@ def _make_v41_config(spec: V41Spec, parallelism: ParallelismConfig) -> DeepSeekV
             embedding_dim=spec.dim,
             param_init=_EMBEDDING_INIT,
         ),
-        norm=RMSNorm.Config(normalized_shape=spec.dim, eps=spec.norm_eps, param_init=_NORM_INIT),
+        norm=RMSNorm.Config(
+            normalized_shape=spec.dim, eps=spec.norm_eps, param_init=_NORM_INIT
+        ),
         lm_head=Linear.Config(
             in_features=spec.dim,
             out_features=spec.vocab_size,
@@ -535,7 +549,11 @@ def build_model_config(
             f"Requested seq_len {context_len} exceeds max context length "
             f"{max_context_len} for flavor {flavor}"
         )
-    spec = get_spec(max_context_length=context_len) if flavor != "debugmodel" else get_spec()
+    spec = (
+        cast("_ContextSpecFactory", get_spec)(max_context_length=context_len)
+        if flavor != "debugmodel"
+        else get_spec()
+    )
     config = _make_v41_config(spec, parallelism)
     from .sharding import set_deepseek_v4_1_sharding_config
 
@@ -546,6 +564,7 @@ def build_model_config(
     )
     if converters is not None:
         from torchtitan.config.transform import validate_converter_compatibility
+
         validate_converter_compatibility(converters)
         for converter_cfg in converters:
             config = converter_cfg.build().convert(config)

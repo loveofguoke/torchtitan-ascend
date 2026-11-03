@@ -6,8 +6,11 @@
 # LICENSE-BSD-3-Clause file in the root directory of this source tree.
 
 import unittest
+from typing import TYPE_CHECKING
 
 import pytest
+
+
 # Load the NPU backend before spmd_types so spawned imports cannot re-enter it.
 import torch  # usort: skip
 import torch_npu  # noqa: F401  # usort: skip
@@ -21,7 +24,7 @@ from torchtitan_ascend import setup
 # Native DTensor workers import this module without pytest conftest.
 setup()
 
-from torch.testing._internal.distributed._tensor.common_dtensor import (  # noqa: E402
+from torch.testing._internal.distributed._tensor.common_dtensor import (
     DTensorTestBase,
     with_comms,
 )
@@ -30,7 +33,9 @@ from torchtitan.distributed.parallelism_context import ParallelismContext  # noq
 from torchtitan.models.common.attention import VarlenInnerAttention  # noqa: E402
 from torchtitan.models.flux.layers import _varlen_attention  # noqa: E402
 from torchtitan.models.flux.model import _get_attention_metadata  # noqa: E402
-from torchtitan.models.flux.sharding import flux_inner_attention_sharding_config  # noqa: E402
+from torchtitan.models.flux.sharding import (  # noqa: E402
+    flux_inner_attention_sharding_config,
+)
 
 
 def _reference_attention(q, k, v):
@@ -40,9 +45,29 @@ def _reference_attention(q, k, v):
         ).transpose(1, 2)
 
 
+if TYPE_CHECKING:
+    _DTensorTestBase = unittest.TestCase
+else:
+    _DTensorTestBase = DTensorTestBase
+
+
 @pytest.mark.multi_gpu
 @unittest.skipUnless(torch.npu.device_count() >= 2, "requires two Ascend NPUs")
-class TestFluxVarlenContextParallel(DTensorTestBase):
+class TestFluxVarlenContextParallel(_DTensorTestBase):
+
+    if TYPE_CHECKING:
+
+        def assertEqual(  # noqa: N802 - PyTorch unittest API
+            self,
+            first: object,
+            second: object,
+            msg: str | None = None,
+            *,
+            atol: float | None = None,
+            rtol: float | None = None,
+        ) -> None:
+            ...
+
     @property
     def device_type(self) -> str:
         return "npu"

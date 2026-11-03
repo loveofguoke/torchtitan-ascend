@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Implement V4.1 block and model forward with cross-layer CSA2 state;
@@ -51,7 +53,10 @@ import torch
 import torch_remat as remat
 from torch import nn
 from torchtitan.models.base.module import ModuleList
-from torchtitan.models.common.attention import AttentionMetadataMap, VarlenAttentionMetadata
+from torchtitan.models.common.attention import (
+    AttentionMetadataMap,
+    VarlenAttentionMetadata,
+)
 from torchtitan.models.common.decoder import Decoder
 from torchtitan.models.deepseek_v4.mhc import HcHead
 from torchtitan.models.deepseek_v4.model import (
@@ -67,6 +72,7 @@ if TYPE_CHECKING:
     from torchtitan.models.common.moe import MoE
 
     from .attention import Attention
+    from .indexer import HierarchicalIndexer
 
 
 def compression_alignment(compress_ratios: tuple[int, ...]) -> int:
@@ -78,6 +84,11 @@ def compression_alignment(compress_ratios: tuple[int, ...]) -> int:
     return alignment
 
 
+if TYPE_CHECKING:
+    from torchtitan.models.base.module import Module, ModuleDict
+    from torchtitan.models.common import Embedding, Linear, RMSNorm
+
+
 class DeepSeekV41TransformerBlock(DeepSeekV4TransformerBlock):
     """V4.1 block: inherits V4's Config/__init__, overrides forward.
 
@@ -86,13 +97,26 @@ class DeepSeekV41TransformerBlock(DeepSeekV4TransformerBlock):
     across layers, so forward takes and returns them explicitly.
     """
 
+    hc_attn_pre: HcPre
+    hc_ffn_pre: HcPre
+    hc_post: HcPost
+    attention: Attention
+    attention_norm: RMSNorm
+    ffn_norm: RMSNorm
+    feed_forward: MoE
+
     @dataclass(kw_only=True, slots=True)
     class Config(DeepSeekV4TransformerBlock.Config):
-        attention: "Attention.Config"  # pyrefly: ignore [bad-override]
-        feed_forward: "MoE.Config"  # pyrefly: ignore [bad-override]
+        attention: "Attention.Config"
+        feed_forward: "MoE.Config"
         hc_attn_pre: HcPre.Config
         hc_ffn_pre: HcPre.Config
         hc_post: HcPost.Config
+
+        if TYPE_CHECKING:
+            # Inherited from TorchTitan; keep runtime dataclass fields unchanged.
+            attention_norm: Module.Config
+            ffn_norm: Module.Config
 
     def forward(
         self,
@@ -146,6 +170,9 @@ class DeepSeekV41TransformerBlock(DeepSeekV4TransformerBlock):
         x = self.hc_post(x, residual, post, comb)
         return x, ffn_pre, cmp_k, idx_k, topk_indices, topk_scores, candidates
 
+    if TYPE_CHECKING:
+        __call__ = forward
+
 
 class DeepSeekV41Model(DeepSeekV4Model):
     """DeepSeek-V4.1 text backbone: CSA2 policy over the packed varlen contract.
@@ -159,6 +186,12 @@ class DeepSeekV41Model(DeepSeekV4Model):
     stream.
     """
 
+    tok_embeddings: Embedding | None
+    norm: RMSNorm | None
+    lm_head: Linear | None
+    layers: ModuleDict[DeepSeekV41TransformerBlock]
+    _skip_lm_head: bool
+
     state_dict_adapter_cls = DeepSeekV41StateDictAdapter
     supports_pipeline_parallel = False
 
@@ -168,7 +201,7 @@ class DeepSeekV41Model(DeepSeekV4Model):
         # flex_attention kernels, which the NPU torch build does not ship;
         # V4.1 keeps the decoder default (no local compile regions).
         local_compile_regions: list[str] = field(default_factory=list)
-        hc_head: HcHead.Config | None = None  # pyrefly: ignore [bad-override]
+        hc_head: HcHead.Config | None = None
         kv_source_layers: tuple[int, ...] = ()
         index_source_layers: tuple[int, ...] = ()
         candidate_source_layer: int = 20
@@ -208,11 +241,31 @@ class DeepSeekV41Model(DeepSeekV4Model):
                         qk_head_dim=attention.head_dim,
                         v_head_dim=attention.head_dim,
                         seq_len=min(
-                            attention.indexer.index_topk, compressed_seq_len
+                            cast(
+                                "HierarchicalIndexer.Config", attention.indexer
+                            ).index_topk,
+                            compressed_seq_len,
                         ),
                         sliding_window_size=0,
                     )
             return nparams, num_flops_per_token
+
+        if TYPE_CHECKING:
+            # Inherited from TorchTitan; keep runtime dataclass fields unchanged.
+            max_context_length: int
+            dim: int
+            vocab_size: int
+            lm_head: Linear.Config
+            tok_embeddings: Embedding.Config
+            norm: RMSNorm.Config
+            layers: list[DeepSeekV41TransformerBlock.Config]
+            enable_weight_tying: bool = False
+            hc_mult: int = 4
+            n_mtp_layers: int = 0
+            compress_ratios: tuple[int, ...] = (1, 1, 4, 4)
+            n_layers: int = 4
+            norm_eps: float = 1e-06
+            mtp_layers: list["MTPBlock.Config"] | None = None
 
     def __init__(self, config: Config):
         # Reuse upstream V4's TP/CP validation, then init as a plain decoder:
@@ -259,7 +312,7 @@ class DeepSeekV41Model(DeepSeekV4Model):
             return tokens
         return tok_embeddings(tokens)
 
-    def forward(  # pyrefly: ignore [bad-override]
+    def forward(
         self,
         tokens: torch.Tensor,
         positions: torch.Tensor | None = None,

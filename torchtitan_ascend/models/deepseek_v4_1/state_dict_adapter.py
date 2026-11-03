@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
 #
-# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro)
+# This code is based on the DeepSeekV4 implementations from the DeepSeek AI team.
+# https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro
 #
 # Modification points:
 # 1. Adapt V4 HF mappings to V4.1 source/reuse ownership;
@@ -43,6 +45,8 @@ from .indexer import REUSE
 class DeepSeekV41StateDictAdapter(DeepSeekV4StateDictAdapter):
     """V4.1 adapter: inherits V4's mapping, overrides the V4.1 differences."""
 
+    from_hf_map: dict[str, str]
+
     def __init__(self, model_config, hf_assets_path):
         super().__init__(model_config, hf_assets_path)
         self._drop_hf_keys = set()
@@ -64,7 +68,8 @@ class DeepSeekV41StateDictAdapter(DeepSeekV4StateDictAdapter):
             self.from_hf_map.pop(v4_only, None)
             if "{}" in v4_only:
                 self._drop_hf_keys.update(
-                    v4_only.format(layer_id) for layer_id in range(model_config.n_layers)
+                    v4_only.format(layer_id)
+                    for layer_id in range(model_config.n_layers)
                 )
             else:
                 self._drop_hf_keys.add(v4_only)
@@ -88,12 +93,12 @@ class DeepSeekV41StateDictAdapter(DeepSeekV4StateDictAdapter):
             layer_cfg = model_config.layers[layer_id]
             compressor_cfg = layer_cfg.attention.compressor
             if compressor_cfg is not None and compressor_cfg.is_source:
-                self.from_hf_map[f"layers.{layer_id}.attn.compressor.norm.weight"] = (
-                    f"layers.{layer_id}.attention.compressor.norm.weight"
-                )
-                self.from_hf_map[f"layers.{layer_id}.attn.compressor.wkv.weight"] = (
-                    f"layers.{layer_id}.attention.compressor.wkv.weight"
-                )
+                self.from_hf_map[
+                    f"layers.{layer_id}.attn.compressor.norm.weight"
+                ] = f"layers.{layer_id}.attention.compressor.norm.weight"
+                self.from_hf_map[
+                    f"layers.{layer_id}.attn.compressor.wkv.weight"
+                ] = f"layers.{layer_id}.attention.compressor.wkv.weight"
                 if compressor_cfg.wgate is not None:
                     self.from_hf_map[
                         f"layers.{layer_id}.attn.compressor.wgate.weight"
@@ -101,16 +106,16 @@ class DeepSeekV41StateDictAdapter(DeepSeekV4StateDictAdapter):
 
             indexer_cfg = layer_cfg.attention.indexer
             if indexer_cfg is not None and indexer_cfg.mode is not REUSE:
-                self.from_hf_map[f"layers.{layer_id}.attn.indexer.wq_b.weight"] = (
-                    f"layers.{layer_id}.attention.indexer.wq_b.weight"
-                )
+                self.from_hf_map[
+                    f"layers.{layer_id}.attn.indexer.wq_b.weight"
+                ] = f"layers.{layer_id}.attention.indexer.wq_b.weight"
                 self.from_hf_map[
                     f"layers.{layer_id}.attn.indexer.weights_proj.weight"
                 ] = f"layers.{layer_id}.attention.indexer.weights_proj.weight"
                 if indexer_cfg.wk is not None:
-                    self.from_hf_map[f"layers.{layer_id}.attn.indexer.wk.weight"] = (
-                        f"layers.{layer_id}.attention.indexer.wk.weight"
-                    )
+                    self.from_hf_map[
+                        f"layers.{layer_id}.attn.indexer.wk.weight"
+                    ] = f"layers.{layer_id}.attention.indexer.wk.weight"
                     if indexer_cfg.k_norm is not None:
                         self.from_hf_map[
                             f"layers.{layer_id}.attn.indexer.k_norm.weight"

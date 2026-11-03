@@ -1,10 +1,18 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Portions derived from TorchTitan retain its BSD-3-Clause license;
+# see LICENSE-BSD-3-Clause in the repository root.
 """Ascend MoE token dispatch and combine with fused NPU permutations."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import spmd_types as spmd
 import torch
 import torch_remat as remat
+from torch.distributed.device_mesh import DeviceMesh
 from torchtitan.config import derive, override
 from torchtitan.distributed.spmd_types import maybe_set_sparse_mesh
 from torchtitan.models.common.moe.token_dispatcher import (
@@ -21,6 +29,17 @@ from torchtitan_ascend.overrides.permute import permute, unpermute
 
 class AscendAllToAllTokenDispatcher(AllToAllTokenDispatcher):
     """Use paired permutation maps for local and EP token routing."""
+
+    ep_mesh: DeviceMesh | None
+    num_experts: int
+    remat_region_name: Callable[[str], str]
+    remat_should_recompute: Callable[[str], bool]
+    _token_count_exchange: Callable[..., torch.Tensor]
+    _sync_token_count_exchange: Callable[
+        ..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+    ]
+    _dispatch_token_exchange: Callable[..., torch.Tensor]
+    _combine_token_exchange: Callable[..., torch.Tensor]
 
     @dataclass(kw_only=True, slots=True)
     class Config(AllToAllTokenDispatcher.Config):
@@ -64,7 +83,9 @@ class AscendAllToAllTokenDispatcher(AllToAllTokenDispatcher):
 
         # EP=1: local dispatch — no all-to-all needed.
         if self.ep_mesh is None:
-            routed_input_ND, local_sorted_indices_N = permute(x_TD, topk_expert_ids_TK.to(torch.int32))
+            routed_input_ND, local_sorted_indices_N = permute(
+                x_TD, topk_expert_ids_TK.to(torch.int32)
+            )
             return (
                 routed_input_ND,
                 num_local_tokens_per_expert_E,
@@ -85,7 +106,9 @@ class AscendAllToAllTokenDispatcher(AllToAllTokenDispatcher):
             self._dispatch,
             self.remat_region_name("dispatch"),
             recompute=self.remat_should_recompute("dispatch"),
-        )(x_TD, topk_expert_ids_TK, num_local_tokens_per_expert_E)
+        )(
+            x_TD, topk_expert_ids_TK, num_local_tokens_per_expert_E
+        )
         remat.recompute_needs_tensor(
             num_global_tokens_per_local_expert_e, input_splits, output_splits
         )
@@ -113,7 +136,9 @@ class AscendAllToAllTokenDispatcher(AllToAllTokenDispatcher):
         """Return tensors only from the complete dispatch remat region."""
         assert self.ep_mesh is not None
         ep_size = self.ep_mesh.size()
-        routed_input_ND, local_sorted_indices_N = permute(x_TD, topk_expert_ids_TK.to(torch.int32))
+        routed_input_ND, local_sorted_indices_N = permute(
+            x_TD, topk_expert_ids_TK.to(torch.int32)
+        )
         with maybe_set_sparse_mesh():
             pg = "ep"
             if spmd.is_type_checking():
@@ -146,9 +171,12 @@ class AscendAllToAllTokenDispatcher(AllToAllTokenDispatcher):
             # expert so a second permutation groups them by expert.
             counts_EP_e = num_global_tokens_per_local_expert_E.reshape(ep_size, -1)
             num_local_experts = self.num_experts // ep_size
-            _expert_ids_per_ep_rank = torch.arange(
-                self.num_experts, dtype=torch.int32, device=routed_input_RD.device
-            ) % num_local_experts
+            _expert_ids_per_ep_rank = (
+                torch.arange(
+                    self.num_experts, dtype=torch.int32, device=routed_input_RD.device
+                )
+                % num_local_experts
+            )
             global_input_tokens_local_experts_indices = torch.repeat_interleave(
                 _expert_ids_per_ep_rank, num_global_tokens_per_local_expert_E.ravel()
             )

@@ -67,6 +67,8 @@ logger = logging.getLogger(__name__)
 class SDCReplayMismatchTrainingEngine(TrainingEngine):
     """Inject a gradient mismatch into the first SDC replay execution."""
 
+    model_parts: list[torch.nn.Module]
+
     def __init__(
         self,
         config: TrainingEngine.Config,
