@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import socket
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -15,6 +17,7 @@ from torch.distributed.tensor import DTensor, Shard
 
 from .settings import MoonEPConfig, validate_endpoint
 
+logger = logging.getLogger(__name__)
 _runtime: MoonEPRuntime | None = None
 _retired = False
 
@@ -170,7 +173,14 @@ class MoonEPRuntime:
         _, num_max_tokens_per_rank, hidden_dim, top_k, num_experts = self.resource_key
         self.owns_heap = self.incomplete = True
         self.projection_shapes = projection_shapes
-        self.buffer = Buffer(
+        if self.communication_options["planning_use_udma"]:
+            logger.warning(
+                "MoonEP planning uses MTE; planning_use_udma does not enable UDMA planning"
+            )
+        self.trace("allocate.buffer.begin")
+        self.buffer = self._create(
+            "buffer",
+            Buffer,
             S=num_max_tokens_per_rank,
             H=hidden_dim,
             K=top_k,
@@ -181,12 +191,23 @@ class MoonEPRuntime:
             explicitly_destroy=True,
             use_udma=self.communication_options["use_udma"],
             planning_use_udma=self.communication_options["planning_use_udma"],
-            comm_stream_priority=-1,
+            num_sms=self.communication_options["num_sms"],
+            comm_stream_priority=self.communication_options["comm_stream_priority"],
         )
+        self.trace("allocate.buffer.end")
+        if self.communication_options["allocation_diagnostics"]:
+            logger.warning(
+                "MoonEP rank=%d buffer_symmetric_bytes=%d",
+                self.ep_rank,
+                self.buffer.symmetric_footprint,
+            )
         for projection_shape in projection_shapes:
             # Builders copy local slices; expanded zero tables need just one scalar.
             zero_scalar = torch.zeros((), dtype=torch.float32, device="npu")
-            full_projection, reduce_carrier = create_full_grad_and_reduce_buffer(
+            self.trace("allocate.grad.begin", str(projection_shape))
+            full_projection, reduce_carrier = self._create(
+                "gradient",
+                create_full_grad_and_reduce_buffer,
                 num_experts,
                 self.num_local_experts,
                 *projection_shape,
@@ -202,6 +223,7 @@ class MoonEPRuntime:
             )
             # Keep public carrier metadata while aliasing local [B,M,N] slots.
             reduce_carrier.set_(self.gradient_pools[-1].slots)
+            self.describe("gradient", self.gradient_pools[-1])
         self.incomplete = False
 
     def bind(self, w13_weight, w2_weight, ep_mesh):
@@ -242,7 +264,10 @@ class MoonEPRuntime:
         weight_projections, home_parameters = [], []
         for projection_index, local_weight in enumerate(local_weights):
             projection_shape = self.projection_shapes[projection_index]
-            full_projection = create_full_weight(
+            self.trace("allocate.weight.begin", str(projection_shape))
+            full_projection = self._create(
+                "weight",
+                create_full_weight,
                 self.num_experts,
                 self.num_local_experts,
                 *projection_shape,
@@ -252,6 +277,7 @@ class MoonEPRuntime:
             )
             projection = _projection(full_projection)
             self.weight_projections.append(projection)
+            self.describe("weight", projection)
             projection.home.copy_(
                 local_weight.detach().reshape(self.num_local_experts, *projection_shape)
             )
@@ -295,6 +321,7 @@ class MoonEPRuntime:
                 self.weight_projections[0].home.device,
                 self.communication_options["shmem_ip_port"],
             )
+            self.trace("bootstrap.begin", str(endpoint or "uid"))
             self.incomplete = True
             ShmemRuntime.init_with_buffer(
                 group=self.ep_group,
@@ -304,24 +331,127 @@ class MoonEPRuntime:
             )
             self.incomplete = False
             self.started = True
+            self.trace("bootstrap.end")
+            logger.info(
+                "MoonEP active: EP=%d, S=%d, E=%d, %s",
+                self.ep_group.size(),
+                self.resource_key[1],
+                self.num_experts,
+                self.communication_options,
+            )
 
-    def call(self, method, *args, **kwargs):
-        """Execute a synchronous MoonEP operation before its consumer."""
-        return getattr(self.buffer, method)(*args, **kwargs, async_finish=False)
+    def trace(self, stage, detail=""):
+        """Optional host progress markers; synchronized markers deliberately serialize work."""
+        if self.communication_options.get("trace") or self.communication_options.get(
+            "trace_sync"
+        ):
+            if self.communication_options.get("trace_sync"):
+                torch.npu.synchronize()
+            logger.warning(
+                "MoonEP rank=%d t=%.6f %s %s",
+                self.ep_rank,
+                time.monotonic(),
+                stage,
+                detail,
+            )
+
+    def _create(self, role, builder, *args, **kwargs):
+        try:
+            return builder(*args, **kwargs)
+        except Exception:
+            if self.communication_options["allocation_diagnostics"]:
+                logger.exception(
+                    "MoonEP allocation failed: role=%s rank=%d EP=%d E=%d shapes=%s; resources retained for process exit",
+                    role,
+                    self.ep_rank,
+                    self.ep_group.size(),
+                    self.num_experts,
+                    self.projection_shapes,
+                )
+            raise
+
+    def describe(self, role, projection):
+        """Report public tensor layouts, without probing or allocating private VMM resources."""
+        if self.communication_options["allocation_diagnostics"]:
+            logger.warning(
+                "MoonEP rank=%d allocation=%s full=%s home=%s slots=%s physical_tensor_bytes=%d carrier_bytes=%d",
+                self.ep_rank,
+                role,
+                tuple(projection.full_projection.shape),
+                tuple(projection.home.shape),
+                tuple(projection.slots.shape),
+                sum(
+                    tensor.numel() * tensor.element_size()
+                    for tensor in (projection.home, projection.slots)
+                ),
+                (
+                    projection.reduce_carrier.numel()
+                    * projection.reduce_carrier.element_size()
+                    if hasattr(projection, "reduce_carrier")
+                    else 0
+                ),
+            )
+
+    def call(self, method, *args, wait=True, **kwargs):
+        """Order consumers after events, or return an event for a later projection consumer."""
+        async_finish = self.communication_options["async_finish"]
+        self.trace(f"{method}.submit")
+        result = getattr(self.buffer, method)(
+            *args, **kwargs, async_finish=async_finish
+        )
+        if async_finish and wait:
+            event = result[-1] if isinstance(result, tuple) else result
+            self.trace(f"{method}.wait")
+            event.wait()
+            if method == "dispatch":
+                return result[:-1]
+        self.trace(f"{method}.return")
+        return result
+
+    def _shmem_barrier(self):
+        """Drain device work, then take the SHMEM barrier that also completes pending RMA for remote readers."""
+        from moonep import ShmemRuntime
+
+        torch.npu.synchronize()
+        ShmemRuntime.barrier(group=self.ep_group)
 
     def prefetch(self, comm_plan, weight_projections):
-        """Fetch both projections before expert computation."""
-        self.call(
-            "prefetch_projections",
-            plan=comm_plan,
-            projections=tuple(
-                projection.full_projection for projection in weight_projections
-            ),
-        )
-        return (
-            (projection.full_projection, projection.group_indices)
+        """Launch projections in consumption order; wait only when each GEMM needs its rows."""
+        if self.communication_options["prefetch_sync"]:
+            self.trace("prefetch.publish.begin")
+            self._shmem_barrier()
+            self.trace("prefetch.publish.end")
+        if not self.communication_options["async_finish"]:
+            self.call(
+                "prefetch_projections",
+                plan=comm_plan,
+                projections=tuple(
+                    projection.full_projection for projection in weight_projections
+                ),
+            )
+            return (
+                (projection.full_projection, projection.group_indices)
+                for projection in weight_projections
+            )
+        prefetch_events = tuple(
+            self.call(
+                "prefetch_projections",
+                plan=comm_plan,
+                projections=(projection.full_projection,),
+                wait=False,
+            )
             for projection in weight_projections
         )
+
+        def ready_projections():
+            for projection_index, (projection, event) in enumerate(
+                zip(weight_projections, prefetch_events, strict=True)
+            ):
+                self.trace("prefetch.consume", str(projection_index))
+                event.wait()
+                yield projection.full_projection, projection.group_indices
+
+        return ready_projections()
 
     def reduce(self, comm_plan, grouped_weight_grads, weight_dtypes):
         """Publish FP32 slots and return independent, original-dtype home gradients."""
@@ -330,9 +460,16 @@ class MoonEPRuntime:
         ):
             grad_pool.home.copy_(grouped_grad[: self.num_local_experts])
             grad_pool.slots.copy_(grouped_grad[self.num_local_experts :])
-        dist.all_reduce(
-            torch.zeros(1, device=grouped_weight_grads[0].device), group=self.ep_group
-        )
+        self.trace("grad.publish.begin")
+        grad_publish = self.communication_options["grad_publish"]
+        if grad_publish in ("shmem_host", "strong"):
+            self._shmem_barrier()
+        if grad_publish in ("collective", "strong"):
+            dist.all_reduce(
+                torch.zeros(1, device=grouped_weight_grads[0].device),
+                group=self.ep_group,
+            )
+        self.trace("grad.publish.end")
         self.call(
             "reduce_projection_grads",
             plan=comm_plan,
@@ -358,6 +495,7 @@ class MoonEPRuntime:
         from moonep import ShmemRuntime
         from moonep.buffer import release_owned
 
+        self.trace("close.begin")
         torch.npu.synchronize()
         if self.started:
             ShmemRuntime.finalize()
@@ -386,6 +524,7 @@ class MoonEPRuntime:
         self.gradient_pools.clear()
         self.weight_projections.clear()
         self.closed = True
+        self.trace("close.end")
 
 
 def get_runtime(
@@ -426,5 +565,8 @@ def close_runtime():
     global _runtime, _retired
     if _runtime is not None:
         _runtime.close()
+        from .ops import _plans
+
+        _plans.clear()
         _runtime = None
         _retired = True

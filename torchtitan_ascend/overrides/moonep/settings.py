@@ -11,22 +11,51 @@ class MoonEPConfig:
 
     use_udma: bool = False
     planning_use_udma: bool = False
+    async_finish: bool = False
     qp_count: int = 2
     shmem_ip_port: str | None = None
+    num_sms: int | None = None
+    comm_stream_priority: int = -1
     tokens_per_rank: int | None = None
+    recompute_dispatch: bool = False
+    validate_routing: bool = False
+    grad_publish: str = "strong"
+    prefetch_sync: bool = True
+    trace: bool = False
+    trace_sync: bool = False
+    allocation_diagnostics: bool = False
 
     def validate(self):
         """Reject malformed settings without importing device or MoonEP libraries."""
-        for field_name in ("use_udma", "planning_use_udma"):
+        for field_name in (
+            "use_udma",
+            "planning_use_udma",
+            "async_finish",
+            "recompute_dispatch",
+            "validate_routing",
+            "prefetch_sync",
+            "trace",
+            "trace_sync",
+            "allocation_diagnostics",
+        ):
             if type(getattr(self, field_name)) is not bool:
                 raise ValueError(f"MoonEP {field_name} must be a boolean")
         if type(self.qp_count) is not int or self.qp_count < 0:
             raise ValueError("MoonEP qp_count must be a nonnegative integer")
-        if self.tokens_per_rank is not None and (
-            type(self.tokens_per_rank) is not int or self.tokens_per_rank <= 0
-        ):
+        for field_name in ("num_sms", "tokens_per_rank"):
+            field_value = getattr(self, field_name)
+            if field_value is not None and (
+                type(field_value) is not int or field_value <= 0
+            ):
+                raise ValueError(
+                    f"MoonEP {field_name} must be a positive integer or None"
+                )
+        if type(self.comm_stream_priority) is not int:
+            raise ValueError("MoonEP comm_stream_priority must be an integer")
+        if self.grad_publish not in ("collective", "shmem_host", "strong"):
             raise ValueError(
-                "MoonEP tokens_per_rank must be a positive integer or None"
+                "MoonEP grad_publish supports collective, shmem_host or strong; "
+                "native stream barrier is not public"
             )
         if self.shmem_ip_port is not None:
             validate_endpoint(self.shmem_ip_port)
@@ -41,8 +70,11 @@ class MoonEPConfig:
 
 
 def validate_endpoint(endpoint):
-    """Validate tcp/tcp6 endpoints and normalize IPv6 to MoonEP's public tcp6 scheme."""
-    error_message = "MoonEP shmem_ip_port must be tcp://<host>:<port> or tcp6://[<ipv6>]:<port> with port in 1..65535"
+    """Validate TCP endpoints and normalize IPv6 to the public tcp6 scheme."""
+    error_message = (
+        "MoonEP shmem_ip_port must be tcp://<host>:<port> or "
+        "tcp6://[<ipv6>]:<port> with port in 1..65535"
+    )
     try:
         parsed_endpoint = urlsplit(endpoint)
         is_valid = (
