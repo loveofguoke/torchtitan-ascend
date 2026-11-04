@@ -315,9 +315,7 @@ class Attention(DeepSeekV4Attention):
         with spmd.local():
             q = q.view(num_tokens, -1, self.head_dim)
             _assert_spmd_attention_type(q, tp=spmd.S(1))
-        # The rescale reads the wq_b projection output with bare ops.
         remat.recompute_needs_tensor(q)
-        q = q * torch.rsqrt(q.square().mean(-1, keepdim=True) + self.norm_eps)
         q_nope, q_rope = torch.split(q, [self.head_dim - rd, rd], dim=-1)
 
         kv = self.wkv(x)
