@@ -161,6 +161,8 @@ class AscendDsaIndexer(Glm5DsaIndexer):
         remat.recompute_needs_tensor(qr, kr)
         q = torch.cat((qr, q[..., r:]), -1)
         k = torch.cat((kr, k[..., r:]), -1)
+        # The FP32 gate conversion is a bare consumer of the saved TP gather.
+        remat.recompute_needs_tensor(x)
         weights = self.weights_proj(x.float())
         remat.recompute_needs_tensor(weights)
         weights = weights.float()
