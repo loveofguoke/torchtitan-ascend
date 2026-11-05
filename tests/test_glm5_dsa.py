@@ -343,9 +343,7 @@ def test_all_padding_keeps_attention_and_indexer_backward_dependencies(npu, stag
     setup()
     config = glm5_2_debugmodel_npu(seq_len=8, indexer_stage=stage)
     apply_overrides(config.override, config)
-    attention = (
-        config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
-    )
+    attention = config.model.layers[0].attention.build().bfloat16().to(device="npu")
     attention.init_states()
     if stage == "warmup":
         attention.requires_grad_(False)
@@ -386,7 +384,7 @@ def test_scaled_recipe_fused_attention_and_indexer_backward(npu, stage):
     config = glm5_2_scaled_debugmodel_npu(seq_len=8, indexer_stage=stage)
     apply_overrides(config.override, config)
     attention_config = config.model.layers[0].attention
-    attention = attention_config.build().to(device="npu", dtype=torch.bfloat16)
+    attention = attention_config.build().bfloat16().to(device="npu")
     attention.init_states()
     if stage == "warmup":
         attention.requires_grad_(False)
@@ -431,9 +429,7 @@ def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
         nope_dim + attention_config.v_head_dim
     )
     apply_overrides(config.override, config)
-    attention = (
-        config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
-    )
+    attention = config.model.layers[0].attention.build().bfloat16().to(device="npu")
     attention.init_states()
     attention.requires_grad_(False)
 
@@ -523,9 +519,7 @@ def test_sparse_stage_kl_matches_selected_keys(npu, topk, monkeypatch):
     config = glm5_2_debugmodel_npu(seq_len=queries, indexer_stage="sparse")
     config.model.layers[0].attention.index_topk = topk
     apply_overrides(config.override, config)
-    attention = (
-        config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
-    )
+    attention = config.model.layers[0].attention.build().bfloat16().to(device="npu")
     attention.init_states()
     attention.requires_grad_(False)
 
