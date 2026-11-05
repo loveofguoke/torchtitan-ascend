@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from torchtitan_ascend.device import get_device_name
-from torchtitan_ascend.models.glm5.dsa import DsaMetadata
+from torchtitan_ascend.models.glm5.dsa import DsaMetadata, DsaPacking
 
 
 @pytest.mark.parametrize(
@@ -58,6 +58,31 @@ def test_all_padding_has_no_kernel_queries():
     assert metadata.packing.queries == ()
     assert metadata.packing.keys == ()
     assert metadata.packing.query_count == 4
+
+
+def test_shared_indices_reject_metadata_poison_and_preserve_valid_selections():
+    from torchtitan_ascend.overrides.glm5_dsa import _filter_shared_indices
+
+    packing = DsaPacking(
+        queries=(0, 1, 2, 3),
+        keys=(0, 1, 2, 3, 4),
+        query_lengths=(2, 4),
+        key_lengths=(2, 5),
+        query_count=4,
+    )
+    indices = torch.tensor(
+        [[0, 1, -1, 2**31 - 1], [1, 0, 2, -2], [0, 1, 2, 2**31 - 1], [2, 1, 0, -1]],
+        dtype=torch.int32,
+    )
+    expected = torch.tensor(
+        [[0, -1, -1, -1], [1, 0, -1, -1], [0, 1, -1, -1], [2, 1, 0, -1]],
+        dtype=torch.int32,
+    )
+    actual = _filter_shared_indices(indices, packing)
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    torch.testing.assert_close(
+        _filter_shared_indices(actual, packing), actual, rtol=0, atol=0
+    )
 
 
 @pytest.fixture

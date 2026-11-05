@@ -59,6 +59,22 @@ def _all_causal_keys(packing, width, device):
     return torch.cat(rows).unsqueeze(1).contiguous()
 
 
+def _filter_shared_indices(indices_QS, packing):
+    """Keep document-local causal indices before the native kernel boundary."""
+    limits = []
+    qstart = kstart = 0
+    for qend, kend in zip(packing.query_lengths, packing.key_lengths, strict=True):
+        qlen, klen = qend - qstart, kend - kstart
+        limits.extend(range(klen - qlen + 1, klen + 1))
+        qstart, kstart = qend, kend
+    limits_Q = torch.tensor(limits, device=indices_QS.device, dtype=indices_QS.dtype)
+    # PP metadata inference materializes cross-stage indices with empty().
+    # Invalid values must remain padding, never native-kernel memory offsets.
+    return torch.where(
+        (indices_QS >= 0) & (indices_QS < limits_Q[:, None]), indices_QS, -1
+    )
+
+
 class _IndexerKL(torch.autograd.Function):
     """Use CANN's fused loss/gradient kernels as one differentiable KL objective."""
 
@@ -414,7 +430,11 @@ class AscendGlm5Attention(Glm5Attention):
                 sparse_mode=3,
             )
         elif previous_indices is not None:
-            selected = previous_indices.index_select(0, qidx).unsqueeze(1).contiguous()
+            selected = (
+                _filter_shared_indices(previous_indices.index_select(0, qidx), packing)
+                .unsqueeze(1)
+                .contiguous()
+            )
         else:
             raise ValueError(
                 "A shared-indexer layer requires the producer's DSA indices"
