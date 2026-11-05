@@ -1,0 +1,149 @@
+diff --git a/third_party/ascend/include/TritonToStructured/PtrAnalysis.h b/third_party/ascend/include/TritonToStructured/PtrAnalysis.h
+index ec57440..201edc7 100644
+--- a/third_party/ascend/include/TritonToStructured/PtrAnalysis.h
++++ b/third_party/ascend/include/TritonToStructured/PtrAnalysis.h
+@@ -98,7 +98,10 @@ struct PtrState {
+   LogicalResult addState(PtrState &lhsState, PtrState &rhsState, Operation *op,
+                          OpBuilder &builder);
+ 
+-  triton::AddPtrOp createAddPtrOp(OpBuilder &builder, Location loc);
++  // Loads may drop zero-stride axes and broadcast the loaded value back.
++  // Stores must preserve those axes together with their values and masks.
++  triton::AddPtrOp createAddPtrOp(OpBuilder &builder, Location loc,
++                                bool preserveZeroStrideAxes = false);
+ 
+   triton::MakeTensorPtrOp createMakeTensorPtrOp(OpBuilder &builder,
+                                                 Location loc);
+diff --git a/third_party/ascend/lib/TritonToStructured/MemOpConverter.cpp b/third_party/ascend/lib/TritonToStructured/MemOpConverter.cpp
+index ea9a294..6216531 100644
+--- a/third_party/ascend/lib/TritonToStructured/MemOpConverter.cpp
++++ b/third_party/ascend/lib/TritonToStructured/MemOpConverter.cpp
+@@ -224,60 +224,6 @@ LogicalResult rewriteCatPointerStore(triton::StoreOp op, triton::CatOp catOp,
+   return success();
+ }
+ 
+-// TTIR requires a store value to have the same shape as its pointer. A DSL
+-// scalar is consequently represented either by tt.splat of a scalar or by a
+-// folded dense splat constant.
+-bool isUniformScalarStoreValue(Value value) {
+-  if (auto splat = value.getDefiningOp<triton::SplatOp>())
+-    return !isa<ShapedType>(splat.getSrc().getType());
+-
+-  if (auto constant = value.getDefiningOp<arith::ConstantOp>()) {
+-    if (auto dense = dyn_cast<DenseElementsAttr>(constant.getValue()))
+-      return dense.isSplat();
+-  }
+-  return false;
+-}
+-
+-// Return true only for the store form that must be left to the later pointer
+-// broadcast lowering. A non-singleton zero-stride pointer dimension aliases
+-// lanes, so deferring is sound only when the DSL supplied one scalar value.
+-bool shouldDeferScalarPointerBroadcastStore(Value ptr, Value value) {
+-  if (!isUniformScalarStoreValue(value))
+-    return false;
+-
+-  auto broadcast = ptr.getDefiningOp<triton::BroadcastOp>();
+-  if (!broadcast)
+-    return false;
+-
+-  auto resultType = dyn_cast<RankedTensorType>(broadcast.getType());
+-  auto sourceType = dyn_cast<RankedTensorType>(broadcast.getSrc().getType());
+-  if (!resultType || !sourceType ||
+-      !isa<triton::PointerType>(resultType.getElementType()) ||
+-      resultType.getRank() != sourceType.getRank()) {
+-    return false;
+-  }
+-
+-  int broadcastedDims = 0;
+-  for (size_t i = 0; i < resultType.getShape().size(); ++i) {
+-    const int64_t srcDim = sourceType.getShape()[i];
+-    const int64_t resultDim = resultType.getShape()[i];
+-    if (srcDim == 1 && resultDim != 1) {
+-      ++broadcastedDims;
+-      continue;
+-    }
+-    if (srcDim != resultDim)
+-      return false;
+-  }
+-  if (broadcastedDims != 1)
+-    return false;
+-
+-  Value source = broadcast.getSrc();
+-  while (auto addPtr = source.getDefiningOp<triton::AddPtrOp>())
+-    source = addPtr.getPtr();
+-  auto splat = source.getDefiningOp<triton::SplatOp>();
+-  return splat && isa<triton::PointerType>(splat.getSrc().getType());
+-}
+-
+ } // namespace
+ 
+ LogicalResult LoadConverter::matchAndRewrite(triton::LoadOp op,
+@@ -349,14 +295,6 @@ LogicalResult StoreConverter::matchAndRewrite(triton::StoreOp op,
+       return success();
+   }
+ 
+-  // AddPtrSplatConverter can preserve a non-singleton zero-stride dimension
+-  // as a pointer broadcast. Rebuilding the scalar store here drops that
+-  // dimension from the pointer and mask while the store value stays full-rank.
+-  if (shouldDeferScalarPointerBroadcastStore(oldPtr, oldValue)) {
+-    return rewriter.notifyMatchFailure(
+-        op, "defer scalar pointer broadcast store to TritonToLinalg");
+-  }
+-
+   MemOpTransformer tf(MemOpTransformer::MemType::store, optimizeDynamicOffset);
+ 
+   auto newPtr = tf.createNewPtr(oldPtr, loc, rewriter);
+@@ -596,14 +534,18 @@ Value MemOpTransformer::createNewPtr(Value oldPtr, const Location loc,
+ 
+   for (auto it = ptrState.stateInfo.rbegin(); it != ptrState.stateInfo.rend();
+        ++it) {
+-    if (isZero(it->stride)) {
++    // Removing a zero-stride axis is a load-only optimization: the result
++    // is broadcast back by materializeImplicitBroadcast(). A store has no
++    // corresponding inverse broadcast, and its lane masks need not agree.
++    if (isZero(it->stride) && currentType == MemType::load) {
+       ptrState.shouldLinearize = true;
+     }
+   }
+ 
+   ptrState.generateOriginPermuteIds();
+ 
+-  return ptrState.createAddPtrOp(rewriter, loc);
++  return ptrState.createAddPtrOp(rewriter, loc,
++                                currentType == MemType::store);
+ }
+ 
+ Value MemOpTransformer::createNewMask(Value oldMask, const Location loc,
+@@ -669,7 +611,7 @@ Value MemOpTransformer::createNewMask(Value oldMask, const Location loc,
+                                         itMask->dimIndex, itMask->hasBroadCast,
+                                         itMask->currentType, itMask->rhs);
+ 
+-    if (!isZero(itPtr->stride)) {
++    if (!isZero(itPtr->stride) || currentType == MemType::store) {
+       newMaskInfo.emplace_back(newInfo);
+     }
+ 
+diff --git a/third_party/ascend/lib/TritonToStructured/PtrAnalysis.cpp b/third_party/ascend/lib/TritonToStructured/PtrAnalysis.cpp
+index ed5acbf..7dc7532 100644
+--- a/third_party/ascend/lib/TritonToStructured/PtrAnalysis.cpp
++++ b/third_party/ascend/lib/TritonToStructured/PtrAnalysis.cpp
+@@ -601,7 +601,8 @@ LogicalResult PtrState::addState(PtrState &lhsState, PtrState &rhsState,
+   return success();
+ }
+ 
+-triton::AddPtrOp PtrState::createAddPtrOp(OpBuilder &builder, Location loc) {
++triton::AddPtrOp PtrState::createAddPtrOp(OpBuilder &builder, Location loc,
++                                        bool preserveZeroStrideAxes) {
+   SmallVector<int64_t> tensorSizes;
+   SmallVector<OpFoldResult> tensorStrides;
+ 
+@@ -610,7 +611,7 @@ triton::AddPtrOp PtrState::createAddPtrOp(OpBuilder &builder, Location loc) {
+ 
+   for (auto id : permuteIds) {
+     auto info = stateInfo[id];
+-    if (isZero(info.stride))
++    if (isZero(info.stride) && !preserveZeroStrideAxes)
+       continue;
+     tensorStrides.emplace_back(info.stride);
+     tensorSizes.emplace_back(getIntAttr(info.shape).value());

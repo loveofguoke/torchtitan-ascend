@@ -1,14 +1,13 @@
-# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-# SPDX-License-Identifier: BSD-3-Clause
 #
 # This source code is licensed under the BSD-style license found in the
-# LICENSE-BSD-3-Clause file in the root directory of this source tree.
+# LICENSE file in the root directory of this source tree.
 
 # @lint-ignore-every CITRINE
 
 import unittest
+from typing import TYPE_CHECKING
 from unittest import mock
 
 import pytest
@@ -45,10 +44,17 @@ from torchtitan.distributed.flex_shard.dist_muon import (
 pytestmark = pytest.mark.multi_gpu
 
 
-@unittest.skipUnless(
-    torch.accelerator.device_count() >= 2, "requires two devices"
-)
-class TestDistMuon(DTensorTestBase):
+if TYPE_CHECKING:
+    _DTensorTestBase = unittest.TestCase
+else:
+    _DTensorTestBase = DTensorTestBase
+
+
+@unittest.skipUnless(torch.accelerator.device_count() >= 2, "requires two devices")
+class TestDistMuon(_DTensorTestBase):
+
+    rank: int
+
     @property
     def world_size(self):
         return 2
@@ -101,6 +107,7 @@ class TestDistMuon(DTensorTestBase):
                         shardings_by_mesh_axis={
                             "dp_shard": Owned(),
                         },
+                        compute_dtype=torch.bfloat16,
                     ),
                     local_blocks_fqn: ComputeLayout(
                         shardings_by_mesh_axis={
@@ -109,6 +116,7 @@ class TestDistMuon(DTensorTestBase):
                                 block_sizes=block_sizes,
                             )
                         },
+                        compute_dtype=torch.bfloat16,
                     ),
                 },
                 bucket_configs=[
@@ -263,10 +271,11 @@ class TestDistMuon(DTensorTestBase):
 
 
 @instantiate_parametrized_tests
-@unittest.skipUnless(
-    torch.accelerator.device_count() >= 4, "requires four devices"
-)
-class TestDistMuonNativeMatrixBatch(DTensorTestBase):
+@unittest.skipUnless(torch.accelerator.device_count() >= 4, "requires four devices")
+class TestDistMuonNativeMatrixBatch(_DTensorTestBase):
+
+    rank: int
+
     @property
     def world_size(self):
         return 4
@@ -307,6 +316,7 @@ class TestDistMuonNativeMatrixBatch(DTensorTestBase):
             compute_sharding_by_fqn={
                 fqn: ComputeLayout(
                     shardings_by_mesh_axis={"dp_shard": compute_sharding},
+                    compute_dtype=torch.bfloat16,
                 )
             },
             bucket_configs=[BucketConfig(patterns=(fqn,))],
@@ -383,10 +393,11 @@ class TestDistMuonNativeMatrixBatch(DTensorTestBase):
             self.assertEqual(parameter.placements, storage_placements)
 
 
-@unittest.skipUnless(
-    torch.accelerator.device_count() >= 4, "requires four devices"
-)
-class TestDistMuonInitialExpertStorageContract(DTensorTestBase):
+@unittest.skipUnless(torch.accelerator.device_count() >= 4, "requires four devices")
+class TestDistMuonInitialExpertStorageContract(_DTensorTestBase):
+
+    rank: int
+
     @property
     def world_size(self):
         return 4
@@ -437,6 +448,7 @@ class TestDistMuonInitialExpertStorageContract(DTensorTestBase):
                             "ep": Shard(0),
                         },
                         shard_order_by_tensor_dim=shard_order_by_tensor_dim,
+                        compute_dtype=torch.bfloat16,
                     )
                 },
                 bucket_configs=[BucketConfig(patterns=(fqn,))],
@@ -477,12 +489,12 @@ class TestDistMuonInitialExpertStorageContract(DTensorTestBase):
             edp_shard_coordinate,
         )
         compute_offset = ep_offset + edp_shard_offset
-        expected_compute = grad.narrow(
-            0,
-            compute_offset,
-            edp_shard_num_experts,
-        ).contiguous()
-        expected_direction = grad.clone().mul_(0.5).add_(0.25)
+        expected_compute = (
+            grad.narrow(0, compute_offset, edp_shard_num_experts)
+            .contiguous()
+            .to(torch.bfloat16)
+        )
+        expected_direction = grad.to(torch.bfloat16).mul_(0.5).add_(0.25).float()
         expected_parameter = value.clone().mul_(1 - lr * weight_decay)
         expected_parameter.add_(
             expected_direction,

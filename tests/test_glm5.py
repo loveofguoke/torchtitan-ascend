@@ -8,8 +8,8 @@ import pytest
 import torch
 import torch.distributed as dist
 
-from torchtitan.distributed.activation_checkpoint import SelectiveAC
-from torchtitan.protocols.module import Module
+from torchtitan.distributed.activation_remat import DefaultActivationRematConfig
+from torchtitan.models.base.module import Module
 from torchtitan_ascend import setup
 from torchtitan_ascend.recipes.glm5 import (
     glm5_2_debugmodel_mtp_npu,
@@ -19,7 +19,7 @@ from torchtitan_ascend.recipes.glm5 import (
 )
 
 
-@pytest.mark.parametrize("regions", [[], ["loss", "swiglu"]])
+@pytest.mark.parametrize("regions", [[], ["loss", "fused_binary_activation"]])
 def test_glm5_recipe_preserves_model_compile_regions(monkeypatch, regions):
     from torchtitan_ascend.recipes import glm5
 
@@ -43,13 +43,17 @@ def test_glm5_debugmodel_npu_config(recipe):
     config = recipe()
 
     assert config.model.local_compile_regions == []
-    assert isinstance(config.activation_checkpoint, SelectiveAC.Config)
+    assert isinstance(config.activation_remat, DefaultActivationRematConfig)
     assert config.training.num_tokens_per_microbatch_per_dp_rank == 256
     assert config.training.max_context_length == 128
     assert config.training.steps == 10
-    assert any(entry[0] == "torchtitan_ascend.overrides.glm5_dsa.npu_glm5_dsa" for entry in config.override.imports)
     assert any(
-        isinstance(initializer, partial) and initializer.func is torch.nn.init.trunc_normal_
+        entry[0] == "torchtitan_ascend.overrides.glm5_dsa.npu_glm5_dsa"
+        for entry in config.override.imports
+    )
+    assert any(
+        isinstance(initializer, partial)
+        and initializer.func is torch.nn.init.trunc_normal_
         for _, module_config, _, _ in config.model.traverse(Module.Config, recurse=True)
         for initializer in (module_config.param_init or {}).values()
     )
@@ -74,8 +78,13 @@ def test_glm5_mtp_npu_config(recipe):
         (glm5_2_debugmodel_npu, "sparse", "selective", None),
         (glm5_2_debugmodel_npu, "sparse", "full", []),
         (glm5_2_debugmodel_npu, "sparse", "selective", ["loss"]),
-        (glm5_2_debugmodel_npu, "sparse", "selective", ["swiglu"]),
-        (glm5_2_debugmodel_npu, "sparse", "selective", ["loss", "swiglu"]),
+        (glm5_2_debugmodel_npu, "sparse", "selective", ["fused_binary_activation"]),
+        (
+            glm5_2_debugmodel_npu,
+            "sparse",
+            "selective",
+            ["loss", "fused_binary_activation"],
+        ),
         (glm5_2_debugmodel_npu, "warmup", "selective", None),
         (glm5_2_debugmodel_npu, "frozen", "selective", None),
         (glm5_3_debugmodel_mtp_npu, "sparse", "selective", None),
@@ -101,13 +110,13 @@ def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint, regi
     setup()
     config = recipe(seq_len=32, indexer_stage=stage)
     if checkpoint == "full":
-        from torchtitan.distributed.activation_checkpoint import FullAC
+        from torchtitan.distributed.activation_remat import FullActivationRematConfig
 
-        config.activation_checkpoint = FullAC.Config()
+        config.activation_remat = FullActivationRematConfig()
     elif checkpoint == "selective":
-        config.activation_checkpoint = SelectiveAC.Config()
+        config.activation_remat = DefaultActivationRematConfig()
     else:
-        config.activation_checkpoint = None
+        config.activation_remat = None
     if regions is not None:
         config.model.local_compile_regions = regions
     config.dump_folder = str(tmp_path)
@@ -117,18 +126,32 @@ def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint, regi
     try:
         trainer = config.build()
         parameters = dict(trainer.engine.model_parts[0].named_parameters())
-        indexer = next(parameter for name, parameter in parameters.items() if ".indexer.wq_b.weight" in name)
-        backbone = next(parameter for name, parameter in parameters.items() if "tok_embeddings.weight" in name)
+        indexer = next(
+            parameter
+            for name, parameter in parameters.items()
+            if ".indexer.wq_b.weight" in name
+        )
+        backbone = next(
+            parameter
+            for name, parameter in parameters.items()
+            if "tok_embeddings.weight" in name
+        )
         before_indexer = indexer.detach().clone()
         before_backbone = backbone.detach().clone()
         if stage == "warmup":
-            assert all(not parameter.requires_grad for name, parameter in parameters.items() if ".indexer." not in name)
+            assert all(
+                not parameter.requires_grad
+                for name, parameter in parameters.items()
+                if ".indexer." not in name
+            )
         metrics = []
         original_log = trainer.metrics_processor.log
 
         def capture(step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs):
             metrics.append((global_avg_loss, grad_norm))
-            return original_log(step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs)
+            return original_log(
+                step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs
+            )
 
         monkeypatch.setattr(trainer.metrics_processor, "log", capture)
         trainer.train()

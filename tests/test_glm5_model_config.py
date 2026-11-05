@@ -13,8 +13,8 @@ import torch
 
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.models.common.config_utils import DEFAULT_DEBUG_MODEL_SEQ_LEN
+from torchtitan.models.common.flops import get_nparams_and_active_nparams
 from torchtitan.models.common.moe import MoE
-from torchtitan.models.utils import get_nparams_and_active_nparams
 from torchtitan_ascend.models.glm5 import build_model_config, MODEL_FLAVORS
 from torchtitan_ascend.models.glm5.dsa import DsaAttention
 from torchtitan_ascend.models.glm5.model import Glm5Attention
@@ -41,8 +41,15 @@ class TestGlm5Config(unittest.TestCase):
             parallelism=ParallelismConfig(),
             seq_len=128,
         )
-        self.assertTrue(all(layer.feed_forward is not None for layer in config.layers[:3]))
-        self.assertTrue(all(isinstance(layer.moe, MoE.Config) for layer in config.layers[3:]))
+        self.assertTrue(
+            all(layer.feed_forward is not None for layer in config.layers[:3])
+        )
+        self.assertTrue(
+            all(
+                isinstance(layer.feed_forward, MoE.Config)
+                for layer in config.layers[3:]
+            )
+        )
 
     def test_rejects_context_beyond_flavor_limit(self) -> None:
         with self.assertRaisesRegex(ValueError, "exceeds max context length"):
@@ -60,7 +67,9 @@ class TestGlm5Config(unittest.TestCase):
         )
         model = config.build()
         model.init_states()
-        self.assertGreater(sum(parameter.numel() for parameter in model.parameters()), 0)
+        self.assertGreater(
+            sum(parameter.numel() for parameter in model.parameters()), 0
+        )
 
     def test_mtp_flavor_builds_full_nextn_block(self) -> None:
         config = build_model_config(
@@ -120,7 +129,9 @@ class TestGlm5Config(unittest.TestCase):
         self.assertEqual(len(debug.model.mtp_layers), 0)
         self.assertEqual(len(mtp.model.mtp_layers), 1)
         self.assertEqual(len(scaled.model.layers), 16)
-        self.assertTrue(all(layer.attention.index_topk == 1024 for layer in scaled.model.layers))
+        self.assertTrue(
+            all(layer.attention.index_topk == 1024 for layer in scaled.model.layers)
+        )
 
     def test_mtp_recipe_builds_one_prediction_depth(self) -> None:
         from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_mtp_npu
@@ -141,19 +152,31 @@ class TestGlm5Config(unittest.TestCase):
             glm5_2_debugmodel_mtp_npu(mtp_scale=-0.1)
 
     def test_npu_changes_preserves_execution_policies(self) -> None:
-        from torchtitan.distributed.activation_checkpoint import FullAC, SelectiveAC
+        from torchtitan.distributed.activation_remat import (
+            DefaultActivationRematConfig,
+            FullActivationRematConfig,
+        )
         from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu, npu_changes
 
-        for policy in (None, SelectiveAC.Config(), FullAC.Config()):
-            for regions in ([], ["loss"], ["swiglu"], ["loss", "swiglu"]):
+        for policy in (
+            None,
+            DefaultActivationRematConfig(),
+            FullActivationRematConfig(),
+        ):
+            for regions in (
+                [],
+                ["loss"],
+                ["fused_binary_activation"],
+                ["loss", "fused_binary_activation"],
+            ):
                 with self.subTest(policy=type(policy).__qualname__, regions=regions):
                     config = glm5_2_debugmodel_npu()
-                    config.activation_checkpoint = policy
+                    config.activation_remat = policy
                     config.model.local_compile_regions = regions.copy()
 
                     npu_changes(config)
 
-                    self.assertIs(config.activation_checkpoint, policy)
+                    self.assertIs(config.activation_remat, policy)
                     self.assertEqual(config.model.local_compile_regions, regions)
 
     def test_npu_override_preserves_upstream_rope(self) -> None:
@@ -162,20 +185,28 @@ class TestGlm5Config(unittest.TestCase):
         from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_mtp_npu
 
         config = glm5_2_debugmodel_mtp_npu()
-        attention_configs = [layer.attention for layer in (*config.model.layers, *config.model.mtp_layers)]
+        attention_configs = [
+            layer.attention
+            for layer in (*config.model.layers, *config.model.mtp_layers)
+        ]
         original = [
-            (attention.rope, attention.indexer.rope if attention.indexer else None) for attention in attention_configs
+            (attention.rope, attention.indexer.rope if attention.indexer else None)
+            for attention in attention_configs
         ]
 
         apply_overrides(config.override, config)
 
-        for layer, (rope, indexer_rope) in zip((*config.model.layers, *config.model.mtp_layers), original, strict=True):
+        for layer, (rope, indexer_rope) in zip(
+            (*config.model.layers, *config.model.mtp_layers), original, strict=True
+        ):
             with self.subTest(layer=layer):
                 self.assertIs(layer.attention.rope, rope)
                 self.assertIs(type(layer.attention.rope), ComplexRoPE.Config)
                 if indexer_rope is not None:
                     self.assertIs(layer.attention.indexer.rope, indexer_rope)
-                    self.assertIs(type(layer.attention.indexer.rope), ComplexRoPE.Config)
+                    self.assertIs(
+                        type(layer.attention.indexer.rope), ComplexRoPE.Config
+                    )
 
     def test_sparse_training_rejects_padded_topk(self) -> None:
         from torchtitan.config.override import apply_overrides
@@ -187,11 +218,15 @@ class TestGlm5Config(unittest.TestCase):
                     config = glm5_2_debugmodel_npu(indexer_stage=stage)
                     config.model.layers[0].attention.index_topk = topk
                     if stage == "sparse" and topk in (8, 512, 1536):
-                        with self.assertRaisesRegex(ValueError, "multiples of 1024; padding is unsupported"):
+                        with self.assertRaisesRegex(
+                            ValueError, "multiples of 1024; padding is unsupported"
+                        ):
                             apply_overrides(config.override, config)
                     else:
                         apply_overrides(config.override, config)
-                        self.assertEqual(config.model.layers[0].attention.index_topk, topk)
+                        self.assertEqual(
+                            config.model.layers[0].attention.index_topk, topk
+                        )
 
     def test_preprocess_inputs_matches_pinned_trainer_contract(self) -> None:
         config = build_model_config(
@@ -209,7 +244,7 @@ class TestGlm5Config(unittest.TestCase):
             "torchtitan_ascend.models.glm5.model.annotate_input_spmd_types",
             side_effect=lambda _context, inputs, _shardings: inputs,
         ):
-            inputs, labels, model_kwargs = model.preprocess_inputs(
+            inputs, labels, model_kwargs, loss_kwargs = model.preprocess_inputs(
                 input_dict,
                 parallelism_context=SimpleNamespace(cp_enabled=False),
                 parallelism=ParallelismConfig(),
@@ -218,6 +253,118 @@ class TestGlm5Config(unittest.TestCase):
         torch.testing.assert_close(inputs, torch.arange(8))
         torch.testing.assert_close(labels, torch.arange(8))
         self.assertNotIn("loss_kwargs", model_kwargs)
+        self.assertEqual(loss_kwargs, {})
+
+    def test_mtp_preprocess_preserves_loss_weights_and_global_counts(self) -> None:
+        config = build_model_config(
+            "glm5_2_debugmodel_mtp", parallelism=ParallelismConfig(), seq_len=8
+        )
+        model = config.build()
+        counts = torch.tensor([8.0, 6.0])
+        weights = torch.arange(8).float()
+        batch = {
+            "input": torch.arange(8),
+            "labels": torch.arange(8),
+            "positions": torch.tensor([0, 1, 2, 3, 0, 1, 2, 3]),
+            "padding_mask": torch.tensor(
+                [False, False, False, True, False, False, False, False]
+            ),
+            "loss_kwargs": {"weights": weights},
+        }
+        with patch(
+            "torchtitan_ascend.models.glm5.model.annotate_input_spmd_types",
+            side_effect=lambda _context, inputs, _shardings: inputs,
+        ):
+            tokens, labels, kwargs, loss_kwargs = model.preprocess_inputs(
+                batch,
+                parallelism_context=SimpleNamespace(cp_enabled=False),
+                parallelism=ParallelismConfig(),
+                global_routing_token_counts=counts,
+            )
+        self.assertEqual(len(tokens), 2)
+        self.assertEqual(len(labels), 2)
+        self.assertIs(kwargs["aux_loss_denominators"], counts)
+        self.assertIs(loss_kwargs["weights"], weights)
+        self.assertNotIn("weights", kwargs)
+        self.assertEqual(
+            kwargs["mtp_attention_masks"][0].documents, ((0, 1), (4, 5, 6))
+        )
+
+    def test_tp_attention_projection_layouts(self) -> None:
+        from torchtitan.models.common.decoder_sharding import (
+            colwise_sharding_config,
+            replicated_activation_placement,
+        )
+
+        config = build_model_config(
+            "glm5_2_debugmodel",
+            parallelism=ParallelismConfig(
+                tensor_parallel_degree=2, expert_parallel_degree=2
+            ),
+            seq_len=8,
+        )
+        expected = colwise_sharding_config(
+            input_layout=replicated_activation_placement()
+        )
+        for layer in config.layers:
+            self.assertEqual(layer.attention.wq_b.sharding_config, expected)
+            self.assertEqual(layer.attention.wkv_b.sharding_config, expected)
+
+    def test_pp_mtp_rejected_at_configuration_time(self) -> None:
+        with self.assertRaisesRegex(ValueError, "MTP does not support pipeline"):
+            build_model_config(
+                "glm5_2_debugmodel_mtp",
+                parallelism=ParallelismConfig(pipeline_parallel_degree=2),
+                seq_len=8,
+            )
+
+    def test_forward_propagates_main_and_mtp_aux_denominators(self) -> None:
+        from contextlib import ExitStack
+
+        config = build_model_config(
+            "glm5_2_debugmodel_mtp", parallelism=ParallelismConfig(), seq_len=8
+        )
+        model = config.build()
+        model.init_states()
+        observed = []
+
+        def attention(
+            x,
+            metadata,
+            positions=None,
+            *,
+            return_indices=False,
+            aux_loss_denominator=None,
+            **kwargs,
+        ):
+            assert aux_loss_denominator is not None
+            observed.append(aux_loss_denominator)
+            output = torch.zeros_like(x)
+            return (
+                (output, torch.zeros(x.shape[0], 1, dtype=torch.int32))
+                if return_indices
+                else output
+            )
+
+        layers = [*model.layers.values(), *model.mtp_layers]
+        for layer in layers:
+            layer.feed_forward = torch.nn.Identity()
+        with ExitStack() as stack:
+            for layer in layers:
+                stack.enter_context(
+                    patch.object(layer.attention, "forward", side_effect=attention)
+                )
+            outputs = model(
+                (torch.arange(8), torch.arange(8)),
+                positions=torch.arange(8),
+                mtp_input_valid_masks=(torch.ones(8, dtype=torch.bool),),
+                mtp_attention_masks=(model.get_attention_masks(torch.arange(8)),),
+                aux_loss_denominators=torch.tensor([8.0, 7.0]),
+            )
+        self.assertEqual(len(outputs), 2)
+        self.assertEqual(
+            [value.item() for value in observed], [8.0] * len(model.layers) + [7.0]
+        )
 
     def test_mtp_flops_include_auxiliary_dsa_indexer(self) -> None:
         config = build_model_config(
@@ -230,7 +377,9 @@ class TestGlm5Config(unittest.TestCase):
 
         nparams, active_nparams = get_nparams_and_active_nparams(model)
         indexer_nparams = sum(
-            parameter.numel() for name, parameter in model.named_parameters() if ".attention.indexer." in name
+            parameter.numel()
+            for name, parameter in model.named_parameters()
+            if ".attention.indexer." in name
         )
         attention = config.layers[0].attention
         expected_flops = 6 * active_nparams - 4 * indexer_nparams
@@ -253,7 +402,9 @@ class TestGlm5Config(unittest.TestCase):
             parallelism=ParallelismConfig(context_parallel_degree=2),
             seq_len=128,
         )
-        self.assertIsInstance(config.layers[0].attention.inner_attention, DsaAttention.Config)
+        self.assertIsInstance(
+            config.layers[0].attention.inner_attention, DsaAttention.Config
+        )
         self.assertTrue(config.layers[0].attention.inner_attention.enable_cp)
 
     def test_shared_indexer_layers_do_not_own_redundant_parameters(self) -> None:

@@ -19,7 +19,15 @@ from functools import partial
 import torch.nn as nn
 
 from torchtitan.config.parallelism import ParallelismConfig
-from torchtitan.models.common import ComplexRoPE, Embedding, LayerNorm, Linear, RMSNorm, RouterGateLinear, Sigmoid
+from torchtitan.models.common import (
+    ComplexRoPE,
+    Embedding,
+    HiMidLoLinear,
+    LayerNorm,
+    Linear,
+    RMSNorm,
+    Sigmoid,
+)
 from torchtitan.models.common.config_utils import (
     DEFAULT_DEBUG_MODEL_SEQ_LEN,
     make_ffn_config,
@@ -27,27 +35,35 @@ from torchtitan.models.common.config_utils import (
     make_routed_experts_config,
     make_shared_expert_ffn_config,
 )
+from torchtitan.models.common.decoder_sharding import (
+    colwise_sharding_config,
+    lm_head_sharding_config,
+    norm_sharding_config,
+    pre_lm_head_norm_sharding_config,
+    replicated_activation_placement,
+    replicated_state_sharding_config,
+    residual_activation_placement,
+    rope_cache_sharding_config,
+    rowwise_sharding_config,
+    token_embedding_sharding_config,
+)
 from torchtitan.models.common.linear import RowParallelLinear
-from torchtitan.models.common.moe_sharding import _router_gate_sharding_config, _router_sharding_config
+from torchtitan.models.common.moe.sharding import (
+    router_gate_sharding_config,
+    router_sharding_config,
+)
 from torchtitan.models.common.param_init import depth_scaled_std
 from torchtitan.models.deepseek_v3.moe import DeepSeekV3Router
+from torchtitan.models.deepseek_v3.sharding import (
+    mtp_block_sharding_config,
+    mtp_projection_sharding_config,
+)
 
 from .dsa import DsaAttention, DsaCPAttention, Glm5DsaIndexer
 
 from .model import Glm5Attention, Glm5Model, Glm5TransformerBlock
 from .mtp import Glm5MTPTransformerBlock
-from .sharding import (
-    glm5_attention_sharding_config,
-    glm5_indexer_sharding_config,
-    lm_head_sharding_config,
-    mtp_block_sharding_config,
-    mtp_projection_sharding_config,
-    norm_sharding_config,
-    pre_lm_head_norm_sharding_config,
-    replicated_state_sharding_config,
-    rope_cache_sharding_config,
-    token_embedding_sharding_config,
-)
+from .sharding import glm5_attention_sharding_config, glm5_indexer_sharding_config
 
 
 DSAInnerAttention = DsaAttention
@@ -77,14 +93,15 @@ def build_glm5_mtp_layers(
 ) -> list[Glm5MTPTransformerBlock.Config]:
     """Build GLM NextN blocks from the released decoder-block structure."""
     norm_sharding = norm_sharding_config(enable_sp=enable_sp)
+    attention = inner_cfg.attention
+    assert isinstance(attention, Glm5Attention.Config)
     return [
         Glm5MTPTransformerBlock.Config(
             attention=dataclasses.replace(
-                copy.deepcopy(inner_cfg.attention),
+                copy.deepcopy(attention),
                 indexer=copy.deepcopy(indexer),
             ),
             feed_forward=copy.deepcopy(inner_cfg.feed_forward),
-            moe=copy.deepcopy(inner_cfg.moe),
             attention_norm=copy.deepcopy(inner_cfg.attention_norm),
             ffn_norm=copy.deepcopy(inner_cfg.ffn_norm),
             enorm=RMSNorm.Config(
@@ -163,12 +180,12 @@ def make_glm5_router_config(
     """Build GLM's sigmoid group-limited router using shared components."""
     return DeepSeekV3Router.Config(
         num_experts=num_experts,
-        gate=RouterGateLinear.Config(
+        gate=HiMidLoLinear.Config(
             in_features=dim,
             out_features=num_experts,
             bias=False,
             param_init=gate_param_init,
-            sharding_config=_router_gate_sharding_config(),
+            sharding_config=router_gate_sharding_config(),
         ),
         top_k=top_k,
         score_func=Sigmoid.Config(),
@@ -176,7 +193,7 @@ def make_glm5_router_config(
         route_scale=route_scale,
         num_expert_groups=num_expert_groups,
         num_limited_groups=num_limited_groups,
-        sharding_config=_router_sharding_config(),
+        sharding_config=router_sharding_config(),
     )
 
 
@@ -347,7 +364,9 @@ def build_glm5_layers(
     if experts_per_group < 2:
         raise ValueError("experts_per_group must be >= 2.")
     if not 0 < router_num_limited_groups <= router_num_expert_groups:
-        raise ValueError("router_num_limited_groups must be in [1, router_num_expert_groups].")
+        raise ValueError(
+            "router_num_limited_groups must be in [1, router_num_expert_groups]."
+        )
     if not 0 < router_top_k <= num_experts:
         raise ValueError("router_top_k must be in [1, num_experts].")
     if router_top_k > experts_per_group * router_num_limited_groups:
@@ -381,13 +400,12 @@ def build_glm5_layers(
             feed_forward = make_ffn_config(
                 dim=dim,
                 hidden_dim=dense_hidden_dim,
-                w1_param_init=_LINEAR_INIT,
-                w2w3_param_init=_depth_init(layer_id),
+                w13_param_init=_LINEAR_INIT,
+                w2_param_init=_depth_init(layer_id),
+                enable_sp=enable_sp,
             )
-            moe = None
         else:
-            feed_forward = None
-            moe = make_moe_config(
+            feed_forward = make_moe_config(
                 num_experts=num_experts,
                 router=make_glm5_router_config(
                     dim=dim,
@@ -404,14 +422,17 @@ def build_glm5_layers(
                     num_experts=num_experts,
                     top_k=router_top_k,
                     param_init=_depth_experts_init(layer_id),
+                    enable_ep=enable_ep,
                 ),
                 shared_experts=make_shared_expert_ffn_config(
                     dim=dim,
                     hidden_dim=moe_hidden_dim * num_shared_experts,
-                    w1_param_init=_LINEAR_INIT,
-                    w2w3_param_init=_depth_init(layer_id),
+                    w13_param_init=_LINEAR_INIT,
+                    w2_param_init=_depth_init(layer_id),
+                    enable_sp=enable_sp,
                 ),
                 aux_loss_coeff=1e-3,
+                enable_sp=enable_sp,
             )
         layers.append(
             Glm5TransformerBlock.Config(
@@ -429,7 +450,6 @@ def build_glm5_layers(
                     sharding_config=norm_sharding_config(enable_sp=enable_sp),
                 ),
                 feed_forward=feed_forward,
-                moe=moe,
             )
         )
     return layers
@@ -551,7 +571,10 @@ def _glm5_2_debugmodel_mtp(
     """Small GLM-5.2 training model with one faithful NextN/MTP block."""
     config = _glm5_2_debugmodel(seq_len=seq_len, parallelism=parallelism)
     enable_sp = bool(parallelism and parallelism.enable_sequence_parallel)
-    layers = [dataclasses.replace(layer, preserve_output_for_mtp=True) for layer in config.layers]
+    layers = [
+        dataclasses.replace(layer, preserve_output_for_mtp=True)
+        for layer in config.layers
+    ]
     source_indexer = config.layers[config.index_sources[-1]].attention.indexer
     assert source_indexer is not None
     return dataclasses.replace(
@@ -596,7 +619,11 @@ def _glm5_2_scaled_debugmodel(
         (
             layer_id
             if layer_id < 3 or (layer_id - 2) % 4 == 0
-            else max(source for source in range(layer_id) if source < 3 or (source - 2) % 4 == 0)
+            else max(
+                source
+                for source in range(layer_id)
+                if source < 3 or (source - 2) % 4 == 0
+            )
         )
         for layer_id in range(num_layers)
     )
@@ -693,7 +720,9 @@ def _glm5_2_744b_a40b(
         (
             layer_id
             if max(layer_id - 2, 0) % 4 == 0
-            else max(source for source in range(layer_id) if max(source - 2, 0) % 4 == 0)
+            else max(
+                source for source in range(layer_id) if max(source - 2, 0) % 4 == 0
+            )
         )
         for layer_id in range(num_layers)
     )
@@ -802,7 +831,9 @@ def build_model_config(
 ) -> Glm5Model.Config:
     """Build one GLM-5 flavor using TorchTitan's current model contract."""
     if flavor not in MODEL_FLAVORS:
-        raise ValueError(f"Unknown glm5 flavor: {flavor}. Available: {list(MODEL_FLAVORS)}")
+        raise ValueError(
+            f"Unknown glm5 flavor: {flavor}. Available: {list(MODEL_FLAVORS)}"
+        )
     get_config = MODEL_FLAVORS[flavor]
     max_context_len = {
         "744B-A40B": 1_048_576,
@@ -813,8 +844,22 @@ def build_model_config(
     context_len = seq_len or max_context_len
     if context_len > max_context_len:
         raise ValueError(
-            f"Requested seq_len {context_len} exceeds max context length " f"{max_context_len} for flavor {flavor}"
+            f"Requested seq_len {context_len} exceeds max context length "
+            f"{max_context_len} for flavor {flavor}"
         )
     config = get_config(seq_len=context_len, parallelism=parallelism)
-    config.set_sharding_(parallelism)
+    if config.mtp_layers and parallelism.pipeline_parallel_degree > 1:
+        raise ValueError("GLM MTP does not support pipeline parallelism")
+    for layer in [*config.layers, *config.mtp_layers]:
+        layer.attention.wq_b.sharding_config = colwise_sharding_config(
+            input_layout=replicated_activation_placement()
+        )
+        layer.attention.wkv_b.sharding_config = colwise_sharding_config(
+            input_layout=replicated_activation_placement()
+        )
+        layer.attention.wo.sharding_config = rowwise_sharding_config(
+            output_layout=residual_activation_placement(
+                enable_sp=parallelism.enable_sequence_parallel
+            )
+        )
     return config

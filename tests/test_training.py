@@ -15,7 +15,9 @@ from torchtitan_ascend.recipes.qwen3_5 import qwen35_0_8b_npu, qwen35_debugmodel
 
 
 @pytest.mark.npu
-@pytest.mark.parametrize("recipe", [qwen3_debugmodel_npu, qwen35_debugmodel_npu, qwen35_0_8b_npu])
+@pytest.mark.parametrize(
+    "recipe", [qwen3_debugmodel_npu, qwen35_debugmodel_npu, qwen35_0_8b_npu]
+)
 def test_training_updates_parameters(recipe, tmp_path, monkeypatch):
     if not hasattr(torch, "npu") or not torch.npu.is_available():
         pytest.skip("requires one visible Ascend NPU")
@@ -24,7 +26,9 @@ def test_training_updates_parameters(recipe, tmp_path, monkeypatch):
         Path("assets/hf/Qwen3.5-0.8B/tokenizer.json").is_file()
         and Path("assets/c4/en/c4-train.00000-of-01024.json.gz").is_file()
     ):
-        pytest.skip("requires the Qwen3.5-0.8B tokenizer and C4 shard from docs/models/qwen3_5.md")
+        pytest.skip(
+            "requires the Qwen3.5-0.8B tokenizer and C4 shard from docs/models/qwen3_5.md"
+        )
 
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -59,7 +63,9 @@ def test_training_updates_parameters(recipe, tmp_path, monkeypatch):
 
         def capture(step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs):
             metrics.append((global_avg_loss, grad_norm))
-            return original_log(step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs)
+            return original_log(
+                step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs
+            )
 
         monkeypatch.setattr(trainer.metrics_processor, "log", capture)
 
@@ -70,7 +76,9 @@ def test_training_updates_parameters(recipe, tmp_path, monkeypatch):
         assert all(math.isfinite(value) for row in metrics for value in row)
         for name, parameter in parameters.items():
             assert torch.isfinite(parameter).all().item(), name
-            assert not torch.equal(before[name], parameter), f"optimizer did not update {name}"
+            assert not torch.equal(
+                before[name], parameter
+            ), f"optimizer did not update {name}"
     finally:
         if trainer is not None:
             trainer.close()

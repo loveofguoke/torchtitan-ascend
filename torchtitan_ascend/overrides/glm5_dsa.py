@@ -11,8 +11,8 @@ import torch_remat as remat
 from torchtitan.config import derive, override
 from torchtitan.distributed.parallelism_context import MeshAxisName
 from torchtitan.distributed.spmd_types import spmd_mesh_group
+from torchtitan.models.common.attention.cp_attention import CPInnerAttention
 from torchtitan.models.common.aux_loss import AuxLoss
-from torchtitan.models.common.cp_attention import CPInnerAttention
 from torchtitan.models.common.decoder_sharding import dense_param_placement
 from torchtitan.models.common.linear import maybe_gather_tp_input
 
@@ -63,7 +63,23 @@ class _IndexerKL(torch.autograd.Function):
     """Use CANN's fused loss/gradient kernels as one differentiable KL objective."""
 
     @staticmethod
-    def forward(ctx, qi, ki, weights, query, key, qr, kr, maximum, total, indices, qlens, klens, scale, dense):
+    def forward(
+        ctx,
+        qi,
+        ki,
+        weights,
+        query,
+        key,
+        qr,
+        kr,
+        maximum,
+        total,
+        indices,
+        qlens,
+        klens,
+        scale,
+        dense,
+    ):
         import torch_npu
 
         common = dict(
@@ -100,7 +116,9 @@ class _IndexerKL(torch.autograd.Function):
             # The kernel can mask a causal KV tail, but cannot represent an
             # arbitrary smaller top-k by padding its selection with -1.
             if indices.shape[-1] not in _SPARSE_KL_WIDTHS:
-                raise ValueError("CANN Sparse KL requires an index width of 1024..8192 in multiples of 1024")
+                raise ValueError(
+                    "CANN Sparse KL requires an index width of 1024..8192 in multiples of 1024"
+                )
             dqi, dki, dw, loss = torch_npu.npu_sparse_lightning_indexer_grad_kl_loss(
                 query,
                 key,
@@ -117,7 +135,7 @@ class _IndexerKL(torch.autograd.Function):
         return loss.float().sum()
 
     @staticmethod
-    def backward(ctx, grad):
+    def backward(ctx, grad):  # pyrefly: ignore[bad-override]
         dqi, dki, dw = ctx.saved_tensors
         return dqi * grad, dki * grad, dw * grad, *(None for _ in range(11))
 
@@ -174,7 +192,9 @@ class AscendDsaAttention(DsaAttention):
         )
 
 
-class AscendCPDsaAttention(CPInnerAttention[DsaMetadata, DsaMetadata], AscendDsaAttention):
+class AscendCPDsaAttention(
+    CPInnerAttention[DsaMetadata, DsaMetadata], AscendDsaAttention
+):
     """CP variant with native DSA execution and packed metadata preparation."""
 
     @dataclass(kw_only=True, slots=True)
@@ -193,10 +213,14 @@ class AscendCPDsaAttention(CPInnerAttention[DsaMetadata, DsaMetadata], AscendDsa
         if permutation is not None:
             order = tuple(permutation.detach().cpu().reshape(-1).tolist())
             if len(order) != count or set(order) != set(range(count)):
-                raise ValueError("DSA CP requires a permutation of the packed token axis")
+                raise ValueError(
+                    "DSA CP requires a permutation of the packed token axis"
+                )
         local = count // group.size()
         start = dist.get_rank(group) * local
-        return replace(attention_metadata, order=order, query_start=start, query_end=start + local)
+        return replace(
+            attention_metadata, order=order, query_start=start, query_end=start + local
+        )
 
 
 class DsaIndexerLoss(AuxLoss):
@@ -218,29 +242,43 @@ class AscendGlm5Attention(Glm5Attention):
         index_topk: int = 2048
 
     def __init__(self, config):
-        require_device("Ascend910B", "Ascend910_93", "Ascend950", feature="GLM fused DSA")
+        require_device(
+            "Ascend910B", "Ascend910_93", "Ascend950", feature="GLM fused DSA"
+        )
         self._indexer_weights_match_query = get_device_name().startswith("Ascend950")
         super().__init__(config)
         self.indexer_stage = config.indexer_stage
         self.index_topk = config.index_topk
-        self.indexer_loss = config.indexer_loss.build() if config.indexer_loss is not None else None
+        self.indexer_loss = (
+            config.indexer_loss.build() if config.indexer_loss is not None else None
+        )
         if self.kv_lora_rank != 512 or self.qk_rope_head_dim != 64:
-            raise ValueError("CANN GLM DSA requires kv_lora_rank=512 and qk_rope_head_dim=64")
+            raise ValueError(
+                "CANN GLM DSA requires kv_lora_rank=512 and qk_rope_head_dim=64"
+            )
         if self.indexer is not None and self.indexer.head_dim != 128:
             raise ValueError("CANN LightningIndexer requires indexer head_dim=128")
         if self.indexer_loss is not None:
             assert self.indexer is not None
             if self.n_heads not in (32, 64, 128):
-                raise ValueError("CANN DSA indexer KL requires 32, 64 or 128 global attention heads")
+                raise ValueError(
+                    "CANN DSA indexer KL requires 32, 64 or 128 global attention heads"
+                )
             if self.indexer.n_heads not in (8, 16, 32, 64):
-                raise ValueError("CANN DSA indexer KL requires 8, 16, 32 or 64 indexer heads")
-        torch.nn.Module.register_buffer(self, "causal_mask", torch.empty(0, dtype=torch.bool), persistent=False)
+                raise ValueError(
+                    "CANN DSA indexer KL requires 8, 16, 32 or 64 indexer heads"
+                )
+        torch.nn.Module.register_buffer(
+            self, "causal_mask", torch.empty(0, dtype=torch.bool), persistent=False
+        )
 
     def _init_self_buffers(self, *, buffer_device=None):
         if buffer_device is None:
             buffer_device = self.causal_mask.device
         if self.indexer_stage == "warmup" and self.qk_nope_head_dim == 128:
-            self.causal_mask = torch.ones(2048, 2048, dtype=torch.bool, device=buffer_device).triu(1)
+            self.causal_mask = torch.ones(
+                2048, 2048, dtype=torch.bool, device=buffer_device
+            ).triu(1)
         else:
             self.causal_mask = torch.empty(0, dtype=torch.bool, device=buffer_device)
 
@@ -295,13 +333,26 @@ class AscendGlm5Attention(Glm5Attention):
                 attention_masks,
                 features,
                 topk_indices_TS,
+                aux_loss_denominator,
             )
             output = torch.einsum("tnc,nvc->tnv", output, wv).flatten(1)
         remat.recompute_needs_tensor(output)
         output = self.wo(output)
         return (output, indices) if return_indices else output
 
-    def _fused_attention(self, query, key, qr, kr, q_nope, wk, metadata, features, previous_indices):
+    def _fused_attention(
+        self,
+        query,
+        key,
+        qr,
+        kr,
+        q_nope,
+        wk,
+        metadata,
+        features,
+        previous_indices,
+        denominator=None,
+    ):
         import torch_npu
 
         packing = metadata.packing
@@ -316,11 +367,16 @@ class AscendGlm5Attention(Glm5Attention):
             if features is not None:
                 dependency = dependency + sum(feature.sum() for feature in features)
             zeros = query * 0 + dependency * 0
-            indices = torch.full((packing.query_count, width), -1, device=device, dtype=torch.int32)
+            indices = torch.full(
+                (packing.query_count, width), -1, device=device, dtype=torch.int32
+            )
             return zeros, indices
         q = query.index_select(0, qidx).contiguous()
         k = key.index_select(0, kidx).contiguous()
-        qrope, krope = qr.index_select(0, qidx).contiguous(), kr.index_select(0, kidx).contiguous()
+        qrope, krope = (
+            qr.index_select(0, qidx).contiguous(),
+            kr.index_select(0, kidx).contiguous(),
+        )
         qlens = torch.tensor(packing.query_lengths, device=device, dtype=torch.int32)
         klens = torch.tensor(packing.key_lengths, device=device, dtype=torch.int32)
         selected = None
@@ -348,9 +404,13 @@ class AscendGlm5Attention(Glm5Attention):
         elif previous_indices is not None:
             selected = previous_indices.index_select(0, qidx).unsqueeze(1).contiguous()
         else:
-            raise ValueError("A shared-indexer layer requires the producer's DSA indices")
+            raise ValueError(
+                "A shared-indexer layer requires the producer's DSA indices"
+            )
 
-        indices = torch.full((packing.query_count, width), -1, device=device, dtype=torch.int32)
+        indices = torch.full(
+            (packing.query_count, width), -1, device=device, dtype=torch.int32
+        )
         indices = indices.index_copy(0, qidx, selected.squeeze(1))
         kmain = None
         selected_for_attention = selected
@@ -358,7 +418,9 @@ class AscendGlm5Attention(Glm5Attention):
         if dense:
             qmain = torch.cat((q_nope.index_select(0, qidx), qrope), -1).contiguous()
             kmain = torch.einsum("tjc,npc->tnp", k, wk)
-            kfull = torch.cat((kmain, krope.expand(-1, kmain.shape[1], -1)), -1).contiguous()
+            kfull = torch.cat(
+                (kmain, krope.expand(-1, kmain.shape[1], -1)), -1
+            ).contiguous()
             _, maximum, total, *_ = torch_npu.npu_fusion_attention(
                 qmain,
                 kfull,
@@ -372,8 +434,16 @@ class AscendGlm5Attention(Glm5Attention):
                 sparse_mode=3,
                 softmax_layout="TND",
             )
-            maximum, total = maximum.transpose(0, 1)[..., :1].contiguous(), total.transpose(0, 1)[..., :1].contiguous()
-            longest = max(b - a for a, b in zip((0, *packing.key_lengths[:-1]), packing.key_lengths, strict=True))
+            maximum, total = (
+                maximum.transpose(0, 1)[..., :1].contiguous(),
+                total.transpose(0, 1)[..., :1].contiguous(),
+            )
+            longest = max(
+                b - a
+                for a, b in zip(
+                    (0, *packing.key_lengths[:-1]), packing.key_lengths, strict=True
+                )
+            )
             full_indices = _all_causal_keys(packing, _sparse_width(longest), device)
             out, _, _ = self.inner_attention(
                 q,
@@ -389,8 +459,15 @@ class AscendGlm5Attention(Glm5Attention):
             if self.indexer_stage == "warmup":
                 # CANN dense KL supports D=128 only. Full causal selection
                 # gives the same dense objective for GLM's D=192 MLA.
-                longest = max(b - a for a, b in zip((0, *packing.key_lengths[:-1]), packing.key_lengths, strict=True))
-                selected_for_attention = _all_causal_keys(packing, _sparse_kl_width(longest), device)
+                longest = max(
+                    b - a
+                    for a, b in zip(
+                        (0, *packing.key_lengths[:-1]), packing.key_lengths, strict=True
+                    )
+                )
+                selected_for_attention = _all_causal_keys(
+                    packing, _sparse_kl_width(longest), device
+                )
             else:
                 selected_for_attention = selected
             out, maximum, total = self.inner_attention(
@@ -408,7 +485,11 @@ class AscendGlm5Attention(Glm5Attention):
             # heads, including under TP4 where a local shard has only 16 heads.
             if dense:
                 assert kmain is not None
-                teacher_q = _gather(q_nope.detach(), MeshAxisName.TP, 1).index_select(0, qidx).contiguous()
+                teacher_q = (
+                    _gather(q_nope.detach(), MeshAxisName.TP, 1)
+                    .index_select(0, qidx)
+                    .contiguous()
+                )
                 teacher_k = _gather(kmain.detach(), MeshAxisName.TP, 1)
                 teacher_qr = _gather(qrope.detach(), MeshAxisName.TP, 1)
                 teacher_kr = krope.expand(-1, teacher_k.shape[1], -1).contiguous()
@@ -439,18 +520,28 @@ class AscendGlm5Attention(Glm5Attention):
                 self.softmax_scale,
                 dense,
             )
-            out = self.indexer_loss.inject(loss, carrier=out)
+            if denominator is None:
+                raise ValueError(
+                    "DSA indexer training requires the step-global token denominator"
+                )
+            out = self.indexer_loss.inject(loss, carrier=out, denominator=denominator)
         restored = query.new_zeros(query.shape).index_copy(0, qidx, out)
         return restored, indices
 
 
-@override(target=Glm5Attention.Config, description="Ascend fused MLA/DSA with two-stage indexer training")
+@override(
+    target=Glm5Attention.Config,
+    description="Ascend fused MLA/DSA with two-stage indexer training",
+)
 def npu_glm5_dsa(cfg, *, stage="sparse", indexer_loss_coeff=1.0):
     if stage not in ("frozen", "warmup", "sparse"):
         raise ValueError("DSA stage must be frozen, warmup or sparse")
     if indexer_loss_coeff < 0:
         raise ValueError("DSA indexer_loss_coeff must be non-negative")
-    if not (1 <= cfg.index_topk <= 2048 or cfg.index_topk in (3072, 4096, 5120, 6144, 7168, 8192)):
+    if not (
+        1 <= cfg.index_topk <= 2048
+        or cfg.index_topk in (3072, 4096, 5120, 6144, 7168, 8192)
+    ):
         raise ValueError("DSA top-k is outside the fixed CANN stack's supported range")
     if stage == "sparse" and cfg.index_topk not in _SPARSE_KL_WIDTHS:
         raise ValueError(
@@ -470,17 +561,27 @@ def npu_glm5_dsa(cfg, *, stage="sparse", indexer_loss_coeff=1.0):
         indexer=indexer,
         inner_attention=derive(
             cfg.inner_attention,
-            AscendCPDsaAttention.Config if cfg.inner_attention.enable_cp else AscendDsaAttention.Config,
+            (
+                AscendCPDsaAttention.Config
+                if cfg.inner_attention.enable_cp
+                else AscendDsaAttention.Config
+            ),
             sharding_config=None,
         ),
         indexer_stage=stage,
         indexer_loss=(
-            DsaIndexerLoss.Config(coeff=indexer_loss_coeff) if indexer is not None and stage != "frozen" else None
+            DsaIndexerLoss.Config(coeff=indexer_loss_coeff)
+            if indexer is not None and stage != "frozen"
+            else None
         ),
         index_topk=cfg.index_topk,
     )
+    assert result.sharding_config is not None
     result.sharding_config = replace(
         result.sharding_config,
-        state_shardings={**result.sharding_config.state_shardings, "causal_mask": dense_param_placement(tp=spmd.R)},
+        state_shardings={
+            **result.sharding_config.state_shardings,
+            "causal_mask": dense_param_placement(tp=spmd.R),
+        },
     )
     return result

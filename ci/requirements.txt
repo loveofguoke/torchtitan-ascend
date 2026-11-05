@@ -1,0 +1,6 @@
+# Install test dependencies directly instead of TorchTitan's pytest 7 dev extra.
+pytest==8.3.5
+expecttest>=0.2.0
+pytest-cov
+transformers
+triton==3.6.0

@@ -5,13 +5,23 @@
 
 """Qwen3.5 text training with fla-npu GDN."""
 
-from torchtitan.components.data import ConcatThenSplitPackingConfig, GrainDataLoader, SingleDatasetConfig
+from torchtitan.components.data import (
+    ConcatThenSplitPackingConfig,
+    GrainDataLoader,
+    SingleDatasetConfig,
+)
 from torchtitan.components.data.collators import TextCollator
 from torchtitan.components.data.sources import HuggingFaceRandomAccessSource
+from torchtitan.components.data.text_datasets import DATASETS, TextProcessor
 from torchtitan.components.loss import ChunkedLossWrapper, CrossEntropyLoss
-from torchtitan.components.optim import AdamW, LRSchedulersContainer, Optim, OptimizersContainer
+from torchtitan.components.optim import (
+    AdamW,
+    LRSchedulersContainer,
+    Optim,
+    OptimizersContainer,
+)
 from torchtitan.config import OverrideConfig, TrainingConfig
-from torchtitan.hf_datasets.text_datasets import DATASETS, TextProcessor
+from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.models.common.config_utils import decoder_vocab_size
 from torchtitan.models.qwen3_5 import build_model_config
 from torchtitan.observability.metrics import MetricsProcessor
@@ -22,16 +32,22 @@ from torchtitan_ascend.overrides.gdn import npu_gated_delta_net
 
 
 def _text_config(flavor: str, *, hf_assets_path: str, dataset) -> Trainer.Config:
-    model = build_model_config(flavor, seq_len=256, attn_backend="varlen")
+    parallelism = ParallelismConfig()
+    model = build_model_config(
+        flavor, seq_len=256, attn_backend="varlen", parallelism=parallelism
+    )
     # Upstream executes dummy vision inputs even for text batches if this is present.
     model.vision_encoder = None
     model.local_compile_regions = []
     return Trainer.Config(
         model=model,
+        parallelism=parallelism,
         override=OverrideConfig(imports=[override_target(npu_gated_delta_net)]),
         hf_assets_path=hf_assets_path,
         loss=ChunkedLossWrapper.Config(
-            loss_fn=CrossEntropyLoss.Config(global_vocab_size=decoder_vocab_size(model)),
+            loss_fn=CrossEntropyLoss.Config(
+                global_vocab_size=decoder_vocab_size(model)
+            ),
         ),
         dataloader=GrainDataLoader.Config(
             dataset=ConcatThenSplitPackingConfig(dataset=dataset),
@@ -55,7 +71,7 @@ def _text_config(flavor: str, *, hf_assets_path: str, dataset) -> Trainer.Config
             steps=10,
         ),
         checkpointer=None,
-        activation_checkpoint=None,
+        activation_remat=None,
         metrics=MetricsProcessor.Config(log_freq=1),
     )
 

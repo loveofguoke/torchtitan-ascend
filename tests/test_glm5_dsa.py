@@ -22,7 +22,12 @@ from torchtitan_ascend.models.glm5.dsa import DsaMetadata
 def test_packing_preserves_document_causality_and_padding(order, start, end):
     positions = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3])
     padding = torch.tensor([False, False, True, False, False, True, False, False])
-    metadata = replace(DsaMetadata.from_positions(positions, padding), order=order, query_start=start, query_end=end)
+    metadata = replace(
+        DsaMetadata.from_positions(positions, padding),
+        order=order,
+        query_start=start,
+        query_end=end,
+    )
     packing = metadata.packing
     order = metadata.order or tuple(range(8))
     local_order = order[start:end]
@@ -47,7 +52,9 @@ def test_packing_preserves_document_causality_and_padding(order, start, end):
 
 
 def test_all_padding_has_no_kernel_queries():
-    metadata = DsaMetadata.from_positions(torch.arange(4), torch.ones(4, dtype=torch.bool))
+    metadata = DsaMetadata.from_positions(
+        torch.arange(4), torch.ones(4, dtype=torch.bool)
+    )
     assert metadata.packing.queries == ()
     assert metadata.packing.keys == ()
     assert metadata.packing.query_count == 4
@@ -130,7 +137,9 @@ def test_fused_indexer_topk_matches_long_kv_scores(npu, dtype, topk):
     # Use the actual kernel inputs, including A5's quantized selection weights.
     similarities = torch.einsum("qnh,kh->qnk", qi.float(), ki[:, 0].float()).relu()
     scores = torch.einsum("qn,qnk->qk", weights.float(), similarities)
-    allowed = torch.le(torch.arange(keys)[None, :], torch.arange(keys - queries, keys)[:, None])
+    allowed = torch.le(
+        torch.arange(keys)[None, :], torch.arange(keys - queries, keys)[:, None]
+    )
     scores.masked_fill_(torch.logical_not(allowed), -torch.inf)
     assert indices.shape == (queries, topk)
     assert ((indices >= 0) & (indices < keys)).all()
@@ -173,15 +182,22 @@ def test_sparse_attention_forward_backward_matches_reference(npu):
     )
     refs = [x.float().requires_grad_() for x in inputs]
     rq, rk, rqr, rkr = refs
-    scores = (torch.einsum("tnc,sc->nts", rq, rk[:, 0]) + torch.einsum("tnr,sr->nts", rqr, rkr[:, 0])) * scale
-    scores = scores.masked_fill(torch.ones(tokens, tokens, dtype=torch.bool).triu(1), -torch.inf)
+    scores = (
+        torch.einsum("tnc,sc->nts", rq, rk[:, 0])
+        + torch.einsum("tnr,sr->nts", rqr, rkr[:, 0])
+    ) * scale
+    scores = scores.masked_fill(
+        torch.ones(tokens, tokens, dtype=torch.bool).triu(1), -torch.inf
+    )
     expected = torch.einsum("nts,sc->tnc", scores.softmax(-1), rk[:, 0])
     grad = torch.randn_like(expected)
     out.backward(grad.to(device="npu", dtype=torch.bfloat16))
     expected.backward(grad.to(torch.bfloat16).float())
     torch.testing.assert_close(out.float().cpu(), expected, rtol=0.015, atol=0.005)
     for actual, reference in zip((q, k, qr, kr), refs, strict=True):
-        torch.testing.assert_close(actual.grad.float().cpu(), reference.grad, rtol=0.04, atol=0.025)
+        torch.testing.assert_close(
+            actual.grad.float().cpu(), reference.grad, rtol=0.04, atol=0.025
+        )
 
 
 @pytest.mark.npu
@@ -190,13 +206,23 @@ def test_fused_kl_matches_loss_and_scaled_indexer_gradients(npu, dense):
     from torchtitan_ascend.overrides.glm5_dsa import _IndexerKL
 
     torch.manual_seed(73)
-    tokens, heads, index_heads, head_dim, rope_dim = 16, 32, 8, 128 if dense else 512, 64
+    tokens, heads, index_heads, head_dim, rope_dim = (
+        16,
+        32,
+        8,
+        128 if dense else 512,
+        64,
+    )
     qi_cpu, ki_cpu = _rand((tokens, index_heads, 128)), _rand((tokens, 1, 128))
     weights_cpu = torch.randn(tokens, index_heads) * 0.03
-    qi, ki, weights = [x.npu().detach().requires_grad_() for x in (qi_cpu, ki_cpu, weights_cpu)]
+    qi, ki, weights = [
+        x.npu().detach().requires_grad_() for x in (qi_cpu, ki_cpu, weights_cpu)
+    ]
     qcpu = _rand((tokens, heads, head_dim))
     kcpu = _rand((tokens, heads if dense else 1, head_dim))
-    qrcpu, krcpu = _rand((tokens, heads, rope_dim)), _rand((tokens, heads if dense else 1, rope_dim))
+    qrcpu, krcpu = _rand((tokens, heads, rope_dim)), _rand(
+        (tokens, heads if dense else 1, rope_dim)
+    )
     q, k, qr, kr = [x.npu() for x in (qcpu, kcpu, qrcpu, krcpu)]
     indices = torch.full((tokens, 1, 1024), -1, dtype=torch.int32)
     for row in range(tokens):
@@ -218,7 +244,10 @@ def test_fused_kl_matches_loss_and_scaled_indexer_gradients(npu, dense):
             sparse_mode=3,
             softmax_layout="TND",
         )
-        maximum, total = maximum.transpose(0, 1)[..., :1].contiguous(), total.transpose(0, 1)[..., :1].contiguous()
+        maximum, total = (
+            maximum.transpose(0, 1)[..., :1].contiguous(),
+            total.transpose(0, 1)[..., :1].contiguous(),
+        )
         scores = (
             torch.einsum("tnd,snd->nts", qcpu.float(), kcpu.float())
             + torch.einsum("tnr,snr->nts", qrcpu.float(), krcpu.float())
@@ -261,16 +290,22 @@ def test_fused_kl_matches_loss_and_scaled_indexer_gradients(npu, dense):
         dense,
     )
     rqi, rki, rw = [x.float().requires_grad_() for x in (qi_cpu, ki_cpu, weights_cpu)]
-    logits = torch.einsum("tn,tns->ts", rw, torch.einsum("tnd,sd->tns", rqi, rki[:, 0]).relu())
+    logits = torch.einsum(
+        "tn,tns->ts", rw, torch.einsum("tnd,sd->tns", rqi, rki[:, 0]).relu()
+    )
     valid = torch.ones(tokens, tokens, dtype=torch.bool).tril()
     target = scores.masked_fill(~valid, -torch.inf).softmax(-1).mean(0).detach()
     log_probs = logits.masked_fill(~valid, -torch.inf).log_softmax(-1)
-    expected = (target * (target.clamp_min(1e-30).log() - log_probs.masked_fill(~valid, 0))).sum()
+    expected = (
+        target * (target.clamp_min(1e-30).log() - log_probs.masked_fill(~valid, 0))
+    ).sum()
     (actual * 0.37).backward()
     (expected * 0.37).backward()
     torch.testing.assert_close(actual.cpu(), expected, rtol=0.03, atol=0.002)
     for fused, reference in zip((qi, ki, weights), (rqi, rki, rw), strict=True):
-        torch.testing.assert_close(fused.grad.float().cpu(), reference.grad, rtol=0.06, atol=0.002)
+        torch.testing.assert_close(
+            fused.grad.float().cpu(), reference.grad, rtol=0.06, atol=0.002
+        )
 
 
 @pytest.mark.npu
@@ -283,15 +318,26 @@ def test_all_padding_keeps_attention_and_indexer_backward_dependencies(npu, stag
     setup()
     config = glm5_2_debugmodel_npu(seq_len=8, indexer_stage=stage)
     apply_overrides(config.override, config)
-    attention = config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
+    attention = (
+        config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
+    )
     attention.init_states()
     if stage == "warmup":
         attention.requires_grad_(False)
         attention.indexer.requires_grad_(True)
-    inputs = torch.randn(8, 256, device="npu", dtype=torch.bfloat16, requires_grad=stage != "warmup")
+    inputs = torch.randn(
+        8, 256, device="npu", dtype=torch.bfloat16, requires_grad=stage != "warmup"
+    )
     positions = torch.arange(8, device="npu")
-    metadata = DsaMetadata.from_positions(positions, torch.ones(8, device="npu", dtype=torch.bool))
-    output = attention(inputs, metadata, positions)
+    metadata = DsaMetadata.from_positions(
+        positions, torch.ones(8, device="npu", dtype=torch.bool)
+    )
+    output = attention(
+        inputs,
+        metadata,
+        positions,
+        aux_loss_denominator=torch.tensor(8.0, device="npu"),
+    )
     output.float().sum().backward()
     torch.testing.assert_close(output, torch.zeros_like(output))
     for parameter in attention.indexer.parameters():
@@ -308,7 +354,6 @@ def test_all_padding_keeps_attention_and_indexer_backward_dependencies(npu, stag
 @pytest.mark.parametrize("stage", ["sparse", "warmup"])
 def test_scaled_recipe_fused_attention_and_indexer_backward(npu, stage):
     from torchtitan.config.override import apply_overrides
-    from torchtitan.models.common.aux_loss import AuxLoss
     from torchtitan_ascend import setup
     from torchtitan_ascend.recipes.glm5 import glm5_2_scaled_debugmodel_npu
 
@@ -324,8 +369,13 @@ def test_scaled_recipe_fused_attention_and_indexer_backward(npu, stage):
     inputs = torch.randn(8, attention_config.dim, device="npu", dtype=torch.bfloat16)
     positions = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3], device="npu")
     metadata = DsaMetadata.from_positions(positions)
-    AuxLoss.set_step_denominator(torch.tensor(8.0, device="npu"))
-    output = attention(inputs, metadata, positions)
+    denominator = torch.tensor(8.0, device="npu")
+    output = attention(
+        inputs,
+        metadata,
+        positions,
+        aux_loss_denominator=torch.tensor(8.0, device="npu"),
+    )
     output.float().square().mean().backward()
     assert torch.isfinite(output).all()
     gradient = attention.indexer.wq_b.weight.grad
@@ -342,7 +392,6 @@ def test_scaled_recipe_fused_attention_and_indexer_backward(npu, stage):
 @pytest.mark.parametrize("keys", [8192, 8193])
 def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
     from torchtitan.config.override import apply_overrides
-    from torchtitan.models.common.aux_loss import AuxLoss
     from torchtitan_ascend import setup
     from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
 
@@ -353,9 +402,13 @@ def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
     attention_config = config.model.layers[0].attention
     attention_config.qk_nope_head_dim = nope_dim
     attention_config.wq_b.out_features = heads * (nope_dim + rope_dim)
-    attention_config.wkv_b.out_features = heads * (nope_dim + attention_config.v_head_dim)
+    attention_config.wkv_b.out_features = heads * (
+        nope_dim + attention_config.v_head_dim
+    )
     apply_overrides(config.override, config)
-    attention = config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
+    attention = (
+        config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
+    )
     attention.init_states()
     attention.requires_grad_(False)
 
@@ -363,24 +416,40 @@ def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
     wk = _rand((heads, nope_dim, latent_dim), scale=0.02).npu()
     query = torch.einsum("tnp,npc->tnc", q_nope, wk)
     key = _rand((keys, 1, latent_dim), scale=0.1).npu()
-    qr, kr = _rand((queries, heads, rope_dim), scale=0.1).npu(), _rand((keys, 1, rope_dim), scale=0.1).npu()
+    qr, kr = (
+        _rand((queries, heads, rope_dim), scale=0.1).npu(),
+        _rand((keys, 1, rope_dim), scale=0.1).npu(),
+    )
     features = (
         _rand((queries, index_heads, 128), scale=0.1).npu().requires_grad_(),
         _rand((keys, 1, 128), scale=0.1).npu().requires_grad_(),
-        (torch.randn(queries, index_heads, device="npu") * 0.1 * (index_heads * 128) ** -0.5).requires_grad_(),
+        (
+            torch.randn(queries, index_heads, device="npu")
+            * 0.1
+            * (index_heads * 128) ** -0.5
+        ).requires_grad_(),
     )
     # The final 32 queries see a long KV prefix, as on a CP rank. This tests
     # the production attention/KL boundary without a full long-context model.
     metadata = DsaMetadata(
-        documents=(tuple(range(keys)),), token_count=keys, query_start=keys - queries, query_end=keys
+        documents=(tuple(range(keys)),),
+        token_count=keys,
+        query_start=keys - queries,
+        query_end=keys,
     )
-    AuxLoss.set_step_denominator(torch.tensor(float(queries), device="npu"))
+    denominator = torch.tensor(float(queries), device="npu")
     if nope_dim == 192 and keys > 8192:
-        with pytest.raises(ValueError, match="Sparse KL supports at most 8192 selected keys per query"):
-            attention._fused_attention(query, key, qr, kr, q_nope, wk, metadata, features, None)
+        with pytest.raises(
+            ValueError, match="Sparse KL supports at most 8192 selected keys per query"
+        ):
+            attention._fused_attention(
+                query, key, qr, kr, q_nope, wk, metadata, features, None, denominator
+            )
         return
 
-    output, _ = attention._fused_attention(query, key, qr, kr, q_nope, wk, metadata, features, None)
+    output, _ = attention._fused_attention(
+        query, key, qr, kr, q_nope, wk, metadata, features, None, denominator
+    )
     output.float().square().mean().backward()
     assert torch.isfinite(output).all()
     for feature in features:
@@ -388,7 +457,9 @@ def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
         assert feature.grad.abs().max() > 0
 
     rq, rk, rqr, rkr = [tensor.float().cpu() for tensor in (query, key, qr, kr)]
-    scores = torch.einsum("tnc,sc->nts", rq, rk[:, 0]) + torch.einsum("tnr,sr->nts", rqr, rkr[:, 0])
+    scores = torch.einsum("tnc,sc->nts", rq, rk[:, 0]) + torch.einsum(
+        "tnr,sr->nts", rqr, rkr[:, 0]
+    )
     scores = scores * attention.softmax_scale
     valid = torch.arange(keys)[None, :] <= torch.arange(keys - queries, keys)[:, None]
     probabilities = scores.masked_fill(torch.logical_not(valid), -torch.inf).softmax(-1)
@@ -400,7 +471,6 @@ def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
 @pytest.mark.parametrize("topk", [1024, 2048])
 def test_sparse_stage_kl_matches_selected_keys(npu, topk, monkeypatch):
     from torchtitan.config.override import apply_overrides
-    from torchtitan.models.common.aux_loss import AuxLoss
     from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
 
     observed = {}
@@ -408,7 +478,12 @@ def test_sparse_stage_kl_matches_selected_keys(npu, topk, monkeypatch):
     original_kl = npu.npu_sparse_lightning_indexer_grad_kl_loss
 
     def indexer(query, key, weights, *args, **kwargs):
-        observed["selection"] = (query.dtype, key.dtype, weights.dtype, weights.requires_grad)
+        observed["selection"] = (
+            query.dtype,
+            key.dtype,
+            weights.dtype,
+            weights.requires_grad,
+        )
         return original_indexer(query, key, weights, *args, **kwargs)
 
     def kl(query, key, qi, ki, weights, *args, **kwargs):
@@ -423,7 +498,9 @@ def test_sparse_stage_kl_matches_selected_keys(npu, topk, monkeypatch):
     config = glm5_2_debugmodel_npu(seq_len=queries, indexer_stage="sparse")
     config.model.layers[0].attention.index_topk = topk
     apply_overrides(config.override, config)
-    attention = config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
+    attention = (
+        config.model.layers[0].attention.build().to(device="npu", dtype=torch.bfloat16)
+    )
     attention.init_states()
     attention.requires_grad_(False)
 
@@ -436,15 +513,24 @@ def test_sparse_stage_kl_matches_selected_keys(npu, topk, monkeypatch):
     features = (
         rand(queries, index_heads, 128).requires_grad_(),
         rand(keys, 1, 128).requires_grad_(),
-        (rand(queries, index_heads, dtype=torch.float32) / (index_heads * 128) ** 0.5).requires_grad_(),
+        (
+            rand(queries, index_heads, dtype=torch.float32) / (index_heads * 128) ** 0.5
+        ).requires_grad_(),
     )
     metadata = DsaMetadata(
-        documents=(tuple(range(keys)),), token_count=keys, query_start=keys - queries, query_end=keys
+        documents=(tuple(range(keys)),),
+        token_count=keys,
+        query_start=keys - queries,
+        query_end=keys,
     )
-    AuxLoss.set_step_denominator(torch.tensor(float(queries), device="npu"))
-    output, indices = attention._fused_attention(query, key, qr, kr, q_nope, wk, metadata, features, None)
+    denominator = torch.tensor(float(queries), device="npu")
+    output, indices = attention._fused_attention(
+        query, key, qr, kr, q_nope, wk, metadata, features, None, denominator
+    )
     output.float().square().mean().backward()
-    selection_dtype = query.dtype if get_device_name().startswith("Ascend950") else torch.float32
+    selection_dtype = (
+        query.dtype if get_device_name().startswith("Ascend950") else torch.float32
+    )
     assert observed["selection"] == (query.dtype, query.dtype, selection_dtype, False)
     assert observed["kl_weights_dtype"] == torch.float32
     assert features[2].dtype == torch.float32
@@ -454,21 +540,44 @@ def test_sparse_stage_kl_matches_selected_keys(npu, topk, monkeypatch):
     for row, selected in enumerate(indices.cpu()):
         assert (selected >= 0).all() and (selected <= keys - queries + row).all()
         valid[row, selected.long()] = True
-    scores = torch.einsum("tnc,sc->nts", rq, rk[:, 0]) + torch.einsum("tnr,sr->nts", rqr, rkr[:, 0])
-    probabilities = (scores * attention.softmax_scale).masked_fill(torch.logical_not(valid), -torch.inf).softmax(-1)
+    scores = torch.einsum("tnc,sc->nts", rq, rk[:, 0]) + torch.einsum(
+        "tnr,sr->nts", rqr, rkr[:, 0]
+    )
+    probabilities = (
+        (scores * attention.softmax_scale)
+        .masked_fill(torch.logical_not(valid), -torch.inf)
+        .softmax(-1)
+    )
     expected_output = torch.einsum("nts,sc->tnc", probabilities, rk[:, 0])
-    torch.testing.assert_close(output.cpu().double(), expected_output, rtol=0.015, atol=0.005)
+    torch.testing.assert_close(
+        output.cpu().double(), expected_output, rtol=0.015, atol=0.005
+    )
 
     target = probabilities.mean(0).detach()
-    rqi, rki, rw = [value.detach().cpu().double().requires_grad_() for value in features]
-    logits = torch.einsum("tn,tns->ts", rw, torch.einsum("tnd,sd->tns", rqi, rki[:, 0]).relu())
+    rqi, rki, rw = [
+        value.detach().cpu().double().requires_grad_() for value in features
+    ]
+    logits = torch.einsum(
+        "tn,tns->ts", rw, torch.einsum("tnd,sd->tns", rqi, rki[:, 0]).relu()
+    )
     log_probs = logits.masked_fill(torch.logical_not(valid), -torch.inf).log_softmax(-1)
     expected_loss = (
-        target * (target.clamp_min(1e-30).log() - log_probs.masked_fill(torch.logical_not(valid), 0))
+        target
+        * (
+            target.clamp_min(1e-30).log()
+            - log_probs.masked_fill(torch.logical_not(valid), 0)
+        )
     ).sum()
     expected_loss = expected_loss / queries
     expected_loss.backward()
-    torch.testing.assert_close(attention.indexer_loss.instance_acc.cpu().double(), expected_loss, rtol=0.03, atol=0.002)
+    torch.testing.assert_close(
+        attention.indexer_loss.instance_acc.cpu().double(),
+        expected_loss,
+        rtol=0.03,
+        atol=0.002,
+    )
     for feature, reference in zip(features, (rqi, rki, rw), strict=True):
         assert feature.grad is not None and torch.isfinite(feature.grad).all()
-        torch.testing.assert_close(feature.grad.cpu().double(), reference.grad, rtol=0.06, atol=1e-5)
+        torch.testing.assert_close(
+            feature.grad.cpu().double(), reference.grad, rtol=0.06, atol=1e-5
+        )

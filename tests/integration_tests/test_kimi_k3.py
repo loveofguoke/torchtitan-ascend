@@ -16,7 +16,6 @@ STEPS = 20
 FIRST_STEP_RTOL = 0.005
 RTOL = 0.01
 NORM_RTOL = 0.05
-DETERMINISTIC_RTOL = 1e-6
 NGPU = 2
 
 
@@ -30,15 +29,21 @@ def read_metrics(path: str | Path) -> tuple[dict[int, float], dict[int, float]]:
         step_text, loss_text, norm_text = line.split()
         step, loss, norm = int(step_text), float(loss_text), float(norm_text)
         assert step not in losses, f"duplicate step {step}: {path}"
-        assert math.isfinite(loss) and loss > 0, f"invalid value for loss at step {step}: {path}"
-        assert math.isfinite(norm) and norm >= 0, f"invalid value for grad norm at step {step}: {path}"
+        assert (
+            math.isfinite(loss) and loss > 0
+        ), f"invalid value for loss at step {step}: {path}"
+        assert (
+            math.isfinite(norm) and norm >= 0
+        ), f"invalid value for grad norm at step {step}: {path}"
         losses[step], norms[step] = loss, norm
-    assert list(losses) == list(range(1, STEPS + 1)), f"expected exactly steps 1..{STEPS}: {path}"
+    assert list(losses) == list(
+        range(1, STEPS + 1)
+    ), f"expected exactly steps 1..{STEPS}: {path}"
     return losses, norms
 
 
 def compare_losses(reference, candidate, *, deterministic=False):
-    """Check baseline loss accuracy, or deterministic replay within a small relative tolerance."""
+    """Check baseline loss accuracy, or deterministic replay with zero error."""
     baseline, _ = read_metrics(reference)
     actual, _ = read_metrics(candidate)
     if deterministic:
@@ -46,16 +51,18 @@ def compare_losses(reference, candidate, *, deterministic=False):
             assert torch.isclose(
                 torch.tensor(actual[step], dtype=torch.float64),
                 torch.tensor(value, dtype=torch.float64),
-                rtol=DETERMINISTIC_RTOL,
+                rtol=0,
                 atol=0,
             ), (
                 f"deterministic loss mismatch at step {step}: "
-                f"baseline={value!r}, actual={actual[step]!r}, rtol={DETERMINISTIC_RTOL}, atol=0. "
+                f"baseline={value!r}, actual={actual[step]!r}"
                 f"Log: {candidate}"
             )
-        print(f"PASS: {STEPS}-step deterministic loss comparison, rtol={DETERMINISTIC_RTOL}, atol=0")
+        print(f"PASS: {STEPS}-step deterministic loss comparison, zero error")
         return
-    errors = {step: abs(actual[step] - value) / value for step, value in baseline.items()}
+    errors = {
+        step: abs(actual[step] - value) / value for step, value in baseline.items()
+    }
     assert errors[1] < FIRST_STEP_RTOL, (
         f"first-step loss relative error: {errors[1]:.6%} >= {FIRST_STEP_RTOL:.3%}; "
         f"baseline={baseline[1]}, actual={actual[1]}. Log: {candidate}"
@@ -65,11 +72,13 @@ def compare_losses(reference, candidate, *, deterministic=False):
         f"loss relative error at step {worst}: {errors[worst]:.6%} >= {RTOL:.3%}; "
         f"baseline={baseline[worst]}, actual={actual[worst]}. Log: {candidate}"
     )
-    print(f"PASS: {STEPS}-step loss comparison, first relative error={errors[1]:.6%}, max={errors[worst]:.6%}")
+    print(
+        f"PASS: {STEPS}-step loss comparison, first relative error={errors[1]:.6%}, max={errors[worst]:.6%}"
+    )
 
 
 def compare_norms(reference, candidate, *, exact=False):
-    """Require every norm within +/-5%, or a small relative tolerance for deterministic replay."""
+    """Require every norm within +/-5%, or zero error for deterministic replay."""
     _, baseline = read_metrics(reference)
     _, actual = read_metrics(candidate)
     for step, value in baseline.items():
@@ -77,7 +86,7 @@ def compare_norms(reference, candidate, *, exact=False):
             assert torch.isclose(
                 torch.tensor(actual[step], dtype=torch.float64),
                 torch.tensor(value, dtype=torch.float64),
-                rtol=DETERMINISTIC_RTOL,
+                rtol=0,
                 atol=0,
             ), (
                 f"deterministic grad norm mismatch at step {step}: "
@@ -97,7 +106,7 @@ def compare_norms(reference, candidate, *, exact=False):
             f"grad norm relative change at step {step}: {relative_change:+.6%} outside +/-{NORM_RTOL:.1%}; "
             f"baseline={value}, actual={actual[step]}. Log: {candidate}"
         )
-    criterion = f"rtol={DETERMINISTIC_RTOL}, atol=0" if exact else f"every step within +/-{NORM_RTOL:.1%}"
+    criterion = "zero error" if exact else f"every step within +/-{NORM_RTOL:.1%}"
     print(f"PASS: {STEPS}-step global grad norm comparison, {criterion}")
 
 
@@ -111,11 +120,16 @@ def export_metrics(directory: Path) -> Path:
     events.Reload()
     losses = events.Scalars("loss_metrics/global_avg_loss")
     norms = events.Scalars("grad_norm")
-    assert [event.step for event in losses] == [event.step for event in norms], f"loss/norm step mismatch: {directory}"
+    assert [event.step for event in losses] == [
+        event.step for event in norms
+    ], f"loss/norm step mismatch: {directory}"
     log = directory / "metrics.log"
     log.write_text(
         "# step loss grad_norm\n"
-        + "".join(f"{loss.step} {loss.value!r} {norm.value!r}\n" for loss, norm in zip(losses, norms, strict=True)),
+        + "".join(
+            f"{loss.step} {loss.value!r} {norm.value!r}\n"
+            for loss, norm in zip(losses, norms, strict=True)
+        ),
         encoding="utf-8",
     )
     read_metrics(log)
@@ -143,10 +157,16 @@ def precision_recipe():
 def _run_training():
     torch = pytest.importorskip("torch")
     pytest.importorskip("torch_npu")
-    if not hasattr(torch, "npu") or not torch.npu.is_available() or torch.npu.device_count() < NGPU:
+    if (
+        not hasattr(torch, "npu")
+        or not torch.npu.is_available()
+        or torch.npu.device_count() < NGPU
+    ):
         pytest.skip(f"requires {NGPU} visible Ascend NPUs")
     if not Path("run_train.sh").is_file() or not Path("torchtitan").is_dir():
-        pytest.fail("run this test from the pinned TorchTitan directory containing run_train.sh and torchtitan/")
+        pytest.fail(
+            "run this test from the pinned TorchTitan directory containing run_train.sh and torchtitan/"
+        )
     output = ROOT / "outputs/kimi_k3"
     output.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="fsdp2_", dir=output))
@@ -159,7 +179,9 @@ def _run_training():
         MODULE="test_kimi_k3",
         CONFIG="precision_recipe",
         PYTHONHASHSEED="42",
-        PYTHONPATH=os.pathsep.join([str(Path(__file__).parent), str(ROOT), env.get("PYTHONPATH", "")]),
+        PYTHONPATH=os.pathsep.join(
+            [str(Path(__file__).parent), str(ROOT), env.get("PYTHONPATH", "")]
+        ),
     )
     env.pop("COMM_BACKEND", None)
     with log_path.open("w", encoding="utf-8") as log:
@@ -171,7 +193,9 @@ def _run_training():
             timeout=1800,
             check=False,
         )
-    assert result.returncode == 0, f"training failed (rc={result.returncode}): {log_path}"
+    assert (
+        result.returncode == 0
+    ), f"training failed (rc={result.returncode}): {log_path}"
     return export_metrics(directory)
 
 

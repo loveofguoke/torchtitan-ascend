@@ -6,6 +6,12 @@ import sys
 from pathlib import Path
 
 HEADER = "# SPDX-License-Identifier: Apache-2.0\n"
+UPSTREAM_HEADER = """# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+"""
 
 
 def main() -> int:
@@ -14,9 +20,14 @@ def main() -> int:
     for filename in sys.argv[1:]:
         path = Path(filename)
         text = path.read_text(encoding="utf-8")
-        if any(line.startswith("# SPDX-License-Identifier:") for line in text.splitlines()[:5]):
+        if any(
+            line.startswith("# SPDX-License-Identifier:")
+            for line in text.splitlines()[:5]
+        ):
             continue
         lines = text.splitlines(keepends=True)
+        if UPSTREAM_HEADER in "".join(lines[:12]):
+            continue
         index = int(bool(lines and lines[0].startswith("#!")))
         for position, line in enumerate(lines[:2]):
             if re.match(r"^[ \t\f]*#.*?coding[:=][ \t]*[-\w.]+", line):

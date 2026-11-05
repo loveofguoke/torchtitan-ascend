@@ -1,0 +1,63 @@
+# A2 test list
+
+# --- tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py (2) ---
+tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestVisionEncoderCPUOffload::test_no_offload_policy_when_cpu_offload_is_off
+tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestVisionEncoderCPUOffload::test_vision_encoder_gets_the_same_offload_policy_as_the_decoder
+
+# --- tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py (4) ---
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_no_ep_fsdp_gt_num_experts_shards_feature_dimensions
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_no_ep_fsdp_le_num_experts_shards_dim0
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_no_ep_hsdp_ignores_dp_replicate
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_with_ep_fsdp_gt_num_experts_shards_feature_dimensions
+
+# --- tests/unit_tests/gpu/models/common/test_gated_rmsnorm.py (1) ---
+tests/unit_tests/gpu/models/common/test_gated_rmsnorm.py::TestGatedRMSNormCompile::test_default_forward_and_backward_emit_triton
+
+# --- tests/unit_tests/gpu/models/common/test_kda_attention.py (3) ---
+tests/unit_tests/gpu/models/common/test_kda_attention.py::TestKDAContextParallelMetadata::test_backend_builds_routing_from_global_varlen_metadata
+tests/unit_tests/gpu/models/common/test_kda_attention.py::TestKDAContextParallelMetadata::test_fragments_follow_the_explicit_permutation
+tests/unit_tests/gpu/models/common/test_kda_attention.py::TestKDAContextParallelMetadata::test_metadata_annotates_cp_routing_tensors
+
+# --- tests/unit_tests/gpu/models/common/test_varlen_attention.py (4) ---
+tests/unit_tests/gpu/models/common/test_varlen_attention.py::TestVarlenUlyssesNumerics::test_packed_forward_backward_matches_unsharded
+tests/unit_tests/gpu/models/common/test_varlen_attention.py::test_compiled_and_traced_steps_match_eager
+tests/unit_tests/gpu/models/common/test_varlen_attention.py::test_forward_backward_precision
+tests/unit_tests/gpu/models/common/test_varlen_attention.py::test_fp32_fallback_matches_legacy_forward_backward
+
+# --- tests/unit_tests/gpu/models/deepseek_v4/test_deepseek_v4_attention.py (1) ---
+tests/unit_tests/gpu/models/deepseek_v4/test_deepseek_v4_attention.py::test_matches_dense_masked_attention
+
+# --- tests/unit_tests/gpu/models/flux/test_flux_attention.py (1) ---
+tests/unit_tests/gpu/models/flux/test_flux_attention.py::TestFluxVarlenContextParallel::test_gathered_kv_preserves_batch_boundaries
+
+# --- tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py (5) ---
+tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py::QKClipDistributedTest::test_reduces_head_maxima_and_clips_local_dtensor_weights
+tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py::QKClipDistributedTest::test_weight_scaling_is_communication_free
+tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py::QKClipTest::test_attention_records_training_maxima_only
+tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py::QKClipTest::test_optimizer_hook_runs_qk_clip
+tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py::QKClipTest::test_remat_replay_does_not_record_duplicate_maxima
+
+# --- tests/unit_tests/gpu/models/kimi_k3/test_kimi_k3.py (2) ---
+tests/unit_tests/gpu/models/kimi_k3/test_kimi_k3.py::TestKimiK3::test_mla_attention_rejects_standard_backend_config
+tests/unit_tests/gpu/models/kimi_k3/test_kimi_k3.py::TestKimiK3::test_varlen_config_uses_mla_backend
+
+# --- tests/unit_tests/gpu/models/kimi_k3/test_kimi_k3_attention_residual.py (3) ---
+tests/unit_tests/gpu/models/kimi_k3/test_kimi_k3_attention_residual.py::TestKimiK3AttentionResidualLocalCompile::test_forward_and_backward_are_batch_invariant
+tests/unit_tests/gpu/models/kimi_k3/test_kimi_k3_attention_residual.py::TestKimiK3AttentionResidualLocalCompile::test_forward_and_backward_emit_triton
+tests/unit_tests/gpu/models/kimi_k3/test_kimi_k3_attention_residual.py::TestKimiK3AttentionResidualLocalCompile::test_forward_and_backward_match_reference
+
+# --- tests/unit_tests/gpu/models/muse_spark/test_attention_compile.py (2) ---
+tests/unit_tests/gpu/models/muse_spark/test_attention_compile.py::test_attention_region_matches_eager
+tests/unit_tests/gpu/models/muse_spark/test_attention_compile.py::test_rmsnorm_region_matches_eager
+
+# --- tests/unit_tests/gpu/models/qwen3_5/test_offset_rmsnorm.py (3) ---
+tests/unit_tests/gpu/models/qwen3_5/test_offset_rmsnorm.py::TestOffsetRMSNormCompile::test_forward_and_backward_emit_triton
+tests/unit_tests/gpu/models/qwen3_5/test_offset_rmsnorm.py::TestOffsetRMSNormCompile::test_forward_and_backward_match_eager
+tests/unit_tests/gpu/models/qwen3_5/test_offset_rmsnorm.py::TestOffsetRMSNormTensorParallel::test_compiled_qk_norm
+
+# --- tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py (1) ---
+tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py::TestGatedDeltaNetContextParallel::test_backend_builds_routing_from_varlen_metadata
+
+# --- tests/unit_tests/gpu/models/qwen3_5/test_sigmoid_gate.py (2) ---
+tests/unit_tests/gpu/models/qwen3_5/test_sigmoid_gate.py::TestSigmoidGateLocalCompile::test_forward_and_backward_are_batch_invariant
+tests/unit_tests/gpu/models/qwen3_5/test_sigmoid_gate.py::TestSigmoidGateLocalCompile::test_forward_and_backward_match_reference

@@ -4,7 +4,7 @@
 
 先完成[基础安装](../../INSTALL.md)。GLM-5.2/5.3 的结构、配置、并行化和 checkpoint
 映射位于 `torchtitan_ascend.models.glm5`，复用固定 TorchTitan
-`edde21fb648d446fecb5b78ef42d8c432274b935` 的 MLA、router、MTP 和训练组件。
+0.4.0（`45e33cd413b64cb37a7840cfd3c9765d3c639ae1`）的 MLA、router、MTP 和训练组件。
 GLM 上游化工作见 [TorchTitan PR #5578](https://github.com/pytorch/torchtitan/pull/5578)。
 
 NPU DSA 实现位于 `torchtitan_ascend/overrides/glm5_dsa.py`，由 GLM NPU recipe
@@ -98,11 +98,11 @@ def glm5_tp2():
 在 TP 维复制，KL 教师分布使用全部 attention heads。CP 收集共享 KV，按文档和本地
 query 区间生成 TND 元数据；CP 重排和 padding 不得改变文档隔离或因果关系。
 
-Recipe 沿用上游 SelectiveAC 和模型的局部编译默认值（当前为 `local_compile_regions=[]`）。
+Recipe 使用上游 `DefaultActivationRematConfig` 和模型的局部编译默认值（当前为 `local_compile_regions=[]`）。
 `npu_changes` 保留调用方设置的重计算策略和局部编译区域。需要局部编译时，在构建
-Trainer 前显式设置 `config.model.local_compile_regions = ["loss", "swiglu"]`。
-需要 FullAC 时，从 `torchtitan.distributed.activation_checkpoint` 导入 `FullAC`，
-在构建 Trainer 前设置 `config.activation_checkpoint = FullAC.Config()`。
+Trainer 前显式设置 `config.model.local_compile_regions = ["loss", "fused_binary_activation"]`。
+需要全重计算时，从 `torchtitan.distributed.activation_remat` 导入 `FullActivationRematConfig`，
+在构建 Trainer 前设置 `config.activation_remat = FullActivationRematConfig()`；设为 `None` 关闭重计算。
 融合算子的图编译和各并行组合需分别验证，短程训练通过不代表长期收敛或所有拓扑通过。
 
 ## Ascend 融合算子
@@ -146,10 +146,11 @@ weights；参数投影和 KL 目标继续使用 FP32 weights。A2/A3 保留 FP32
 参数初始化沿用上游 `torch.nn.init.trunc_normal_` 等配置。
 TP vocabulary-parallel cross entropy 同样沿用 TorchTitan 上游实现。
 
-上述 A5 融合路径已在 Ascend 950、CANN 9.2.0、PyTorch `2.15.0+cpu`、
+融合算子的 A5 验证使用 Ascend 950、CANN 9.2.0、PyTorch `2.15.0+cpu`、
 torch_npu `1a25e6b`、TorchTitan `edde21fb` 环境完成组件 loss/梯度对照和
 BF16 debug 短程训练验证。验证覆盖 SelectiveAC、FullAC、局部编译，以及
-FSDP2、TP2、CP2 和 TP2×CP2 的已测组合；其他软件版本及长期精度需分别验证。
+FSDP2、TP2、CP2 和 TP2×CP2 的已测组合。TorchTitan 0.4.0 的接口迁移已增加 CPU 回归，
+设备训练需在该固定版本下重新验证。
 
 ## 验证
 
@@ -187,6 +188,6 @@ loss 和 logits 梯度。两项原生路径已在 Ascend 950、CANN 9.2.0、PyTo
 此结果不替代其他依赖版本、编译路径和完整模型训练的验证。
 
 短程训练测试使用单卡 BF16、上下文长度 32，每个用例运行两步，覆盖无重计算、
-SelectiveAC、FullAC，以及 `loss`、`swiglu` 局部编译区域的单独和联合启用。
+默认重计算、全重计算，以及 `loss`、`fused_binary_activation` 局部编译区域的单独和联合启用。
 同时检查 sparse、warmup、frozen 阶段和 GLM-5.3 MTP 的参数更新行为。
 这些测试不作为 released 模型精度、长期收敛或所有并行与编译组合的验证结论。

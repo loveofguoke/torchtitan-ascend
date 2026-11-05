@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from functools import cached_property
 
 import torch
+from torchtitan.models.base.module import Module
 from torchtitan.models.common import ComplexRoPE, LayerNorm, Linear
-from torchtitan.models.common.cp_attention import CPInnerAttention
-from torchtitan.protocols.module import Module
+from torchtitan.models.common.attention import InnerAttention
+from torchtitan.models.common.attention.cp_attention import CPInnerAttention
 
 
 @dataclass(frozen=True)
@@ -37,18 +38,29 @@ class DsaMetadata:
     query_end: int | None = None
 
     @classmethod
-    def from_positions(cls, positions: torch.Tensor, padding_mask: torch.Tensor | None = None):
+    def from_positions(
+        cls, positions: torch.Tensor, padding_mask: torch.Tensor | None = None
+    ):
         positions_cpu = positions.detach().cpu().tolist()
-        padding = [False] * len(positions_cpu) if padding_mask is None else padding_mask.detach().cpu().tolist()
+        padding = (
+            [False] * len(positions_cpu)
+            if padding_mask is None
+            else padding_mask.detach().cpu().tolist()
+        )
         if len(padding) != len(positions_cpu):
             raise ValueError("DSA padding and position lengths must match")
         documents: list[list[int]] = []
-        for row, (position, ignored) in enumerate(zip(positions_cpu, padding, strict=True)):
+        for row, (position, ignored) in enumerate(
+            zip(positions_cpu, padding, strict=True)
+        ):
             if position == 0 or not documents:
                 documents.append([])
             if not ignored:
                 documents[-1].append(row)
-        return cls(tuple(tuple(document) for document in documents if document), len(positions_cpu))
+        return cls(
+            tuple(tuple(document) for document in documents if document),
+            len(positions_cpu),
+        )
 
     @cached_property
     def packing(self) -> DsaPacking:
@@ -69,26 +81,43 @@ class DsaMetadata:
                 stop = cursor + 1
                 while stop < len(selected) and selected[stop] == selected[stop - 1] + 1:
                     stop += 1
-                queries.extend(local[document[index]] for index in selected[cursor:stop])
-                keys.extend(global_rows[row] for row in document[: selected[stop - 1] + 1])
+                queries.extend(
+                    local[document[index]] for index in selected[cursor:stop]
+                )
+                keys.extend(
+                    global_rows[row] for row in document[: selected[stop - 1] + 1]
+                )
                 q_lengths.append(len(queries))
                 k_lengths.append(len(keys))
                 cursor = stop
-        return DsaPacking(tuple(queries), tuple(keys), tuple(q_lengths), tuple(k_lengths), end - self.query_start)
+        return DsaPacking(
+            tuple(queries),
+            tuple(keys),
+            tuple(q_lengths),
+            tuple(k_lengths),
+            end - self.query_start,
+        )
 
 
-class DsaAttention(Module):
+class DsaAttention(InnerAttention):
     """Config seam for a backend implementing GLM token-selected attention."""
 
     @dataclass(kw_only=True, slots=True)
-    class Config(Module.Config):
+    class Config(InnerAttention.Config):
         attention_dropout: float = 0.0
         enable_cp: bool = False
+
+        @property
+        def is_full_attention(self) -> bool:
+            # DSA spans the full document, even though it selects sparse keys.
+            return True
 
     def __init__(self, config):
         super().__init__()
 
-    def forward(self, query, key, indices, qr, kr, qlens, klens, scale) -> tuple[torch.Tensor, ...]:
+    def forward(
+        self, query, key, indices, qr, kr, qlens, klens, scale
+    ) -> tuple[torch.Tensor, ...]:
         raise RuntimeError("Select the GLM NPU DSA override before model construction.")
 
 
@@ -140,5 +169,7 @@ class Glm5DsaIndexer(Module):
         self.weights_proj.float()
         return self
 
-    def forward(self, hidden_states_TD, q_resid_TR, positions_T) -> tuple[torch.Tensor, ...]:
+    def forward(
+        self, hidden_states_TD, q_resid_TR, positions_T
+    ) -> tuple[torch.Tensor, ...]:
         raise RuntimeError("Select the GLM NPU DSA override before model construction.")
