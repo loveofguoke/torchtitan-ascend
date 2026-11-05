@@ -150,13 +150,20 @@ class AscendDsaIndexer(Glm5DsaIndexer):
     def forward(self, hidden_states_TD, q_resid_TR, positions_T):
         # The indexer has its own objective. Its inputs and teacher are detached.
         x, q_resid = hidden_states_TD.detach(), q_resid_TR.detach()
-        q = self.wq_b(q_resid).view(-1, self.n_heads, self.head_dim)
-        k = self.k_norm(self.wk(x)).unsqueeze(1)
+        q = self.wq_b(q_resid)
+        k = self.wk(x)
+        # Views and normalization are bare consumers of saved linear regions.
+        remat.recompute_needs_tensor(q, k)
+        q = q.view(-1, self.n_heads, self.head_dim)
+        k = self.k_norm(k).unsqueeze(1)
         r = self.qk_rope_head_dim
         qr, kr = self.rope(q[..., :r], k[..., :r], positions_T)
+        remat.recompute_needs_tensor(qr, kr)
         q = torch.cat((qr, q[..., r:]), -1)
         k = torch.cat((kr, k[..., r:]), -1)
-        weights = self.weights_proj(x.float()).float()
+        weights = self.weights_proj(x.float())
+        remat.recompute_needs_tensor(weights)
+        weights = weights.float()
         # The fused indexer has no scale argument. This is the original score
         # scale, including the per-head mixing normalization.
         weights = weights * (self.n_heads * self.head_dim) ** -0.5
@@ -294,7 +301,9 @@ class AscendGlm5Attention(Glm5Attention):
         aux_loss_denominator=None,
     ):
         x_TD = maybe_gather_tp_input(self, x_TD)
-        q_resid = self.q_norm(self.wq_a(x_TD))
+        q_resid = self.wq_a(x_TD)
+        remat.recompute_needs_tensor(q_resid)
+        q_resid = self.q_norm(q_resid)
         q = self.wq_b(q_resid)
         kv = self.wkv_a(x_TD)
         remat.recompute_needs_tensor(q_resid, q, kv)
@@ -309,6 +318,7 @@ class AscendGlm5Attention(Glm5Attention):
             if positions is None:
                 positions = torch.arange(num_tokens, device=x_TD.device)
             qr, kr = self.rope(qr, kr.unsqueeze(1), positions)
+            remat.recompute_needs_tensor(qr, kr)
             kv_weight = self.wkv_b.weight.view(
                 -1,
                 self.qk_nope_head_dim + self.v_head_dim,
