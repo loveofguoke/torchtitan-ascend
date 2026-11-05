@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """GLM DSA parameters and packed-document metadata, independent of kernels."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -101,6 +102,9 @@ class DsaMetadata:
 
 class DsaAttention(InnerAttention):
     """Config seam for a backend implementing GLM token-selected attention."""
+
+    # Preserve Module's callable contract when external runtime types are opaque.
+    __call__: Callable[..., tuple[torch.Tensor, ...]]
 
     @dataclass(kw_only=True, slots=True)
     class Config(InnerAttention.Config):

@@ -151,7 +151,7 @@ class _IndexerKL(torch.autograd.Function):
         return loss.float().sum()
 
     @staticmethod
-    def backward(ctx, grad):  # pyrefly: ignore[bad-override]
+    def backward(ctx, grad):
         dqi, dki, dw = ctx.saved_tensors
         return dqi * grad, dki * grad, dw * grad, *(None for _ in range(11))
 
