@@ -30,10 +30,24 @@
 | 修复 | 当前行为 |
 | --- | --- |
 | [attention_gym.py](attention_gym.py) | 对可选 CUDA 后端缺失复用 Attention Gym 的占位实现；实际构造缺失内核及基础依赖缺失时仍报错。 |
+| [causal_conv1d_spmd.py](causal_conv1d_spmd.py) | 延迟注册本地因果卷积的 SPMD 类型规则。 |
+| [fused_swiglu.py](fused_swiglu.py) | 为上游 SwiGLU 前后向算子补充 PrivateUse1 派发。 |
 | [storage.py](storage.py) | 使用 NPUStorageImpl 构造外部 storage，包括 remat 的空数据占位对象；依赖安装阶段的 storage 补丁。 |
 | [inductor.py](inductor.py) | 复用 NPU scheduler 构造，限制 sub-parent epilogue，并适配 reduction 接口。 |
 | [inductor_determinism.py](inductor_determinism.py) | 对确定性归约筛选配置并禁用计时选优缓存。 |
 | [varlen_attention](varlen_attention/__init__.py) | 将公共 varlen API 连接到 NPU 前后向，按 Q/K 配对过滤空文档槽，保留文档边界及参数校验。 |
+
+### 因果卷积 SPMD 类型规则
+
+目标模块加载后，为 `torchtitan_ascend.models.common.linear_attention._CausalConv1d`
+调用 `spmd_types.register_local_autograd_function`。该注册供 SPMD 类型检查使用，
+返回原自动求导类，保留其前后向实现和调用方导入路径。
+
+### Fused SwiGLU 派发
+
+上游 `torchtitan_recipes.overrides.fused_swiglu` 加载后，为 `silu_and_mul_op`
+和 `silu_and_mul_backward_op` 注册 PrivateUse1 内核，分别复用上游 Triton 前后向实现。
+沿用 packed `gate_up [..., 2, F]` 接口及已有的 fake、autograd 和 SPMD 规则。
 
 ### NPU 编译确定性
 

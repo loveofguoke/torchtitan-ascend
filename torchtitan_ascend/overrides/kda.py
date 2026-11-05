@@ -16,7 +16,6 @@ from torchtitan.models.base.module import Module
 from torchtitan.models.common.attention.kda import InnerKDA, KDAKernel
 from torchtitan.models.common.attention.linear_attention import LinearAttentionMetadata
 
-from torchtitan_ascend.device import require_device
 from torchtitan_ascend.models.common.linear_attention import causal_conv1d
 
 __all__ = [
@@ -370,7 +369,6 @@ class AscendKDAKernel(KDAKernel):
         pass
 
     def __init__(self, config: Config):
-        require_device("Ascend950", feature="fla-npu KDA")
         import_module("fla_npu")
         Module.__init__(self)
         self.lower_bound = config.lower_bound
@@ -444,7 +442,6 @@ class AscendInnerKDA(InnerKDA):
         pass
 
     def __init__(self, config: Config):
-        require_device("Ascend950", feature="fla-npu KDA convolution")
         Module.__init__(self)
         self.head_dim = config.head_dim
         self.kernel = config.kernel.build()
@@ -490,7 +487,8 @@ class AscendInnerKDA(InnerKDA):
     ):
         if initial_state is not None or routing is not None:
             raise NotImplementedError(
-                "fla-npu KDA convolution does not support cached state or context parallelism"
+                "fla-npu KDA convolution does not support cached state "
+                "or context parallelism"
             )
         return causal_conv1d(qkv_1TC.squeeze(0), conv_weight_C1W, cu_seqlens).unsqueeze(
             0

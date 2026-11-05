@@ -7,6 +7,7 @@ and the public varlen_attn forward/backward pass the same NPU tests.
 This replaces the Python API only; it does not register or replace ATen kernels.
 """
 
+import sys
 from functools import wraps
 
 from torchtitan_ascend.patches import patch
@@ -90,4 +91,8 @@ def apply(original):
         )
         return (out, lse) if return_lse else out
 
+    # Rebind an alias saved before setup; later imports read the patched API.
+    module = sys.modules.get("torchtitan.models.common.attention.attention")
+    if module is not None:
+        vars(module)["_varlen_attn"] = varlen_attn
     return varlen_attn
