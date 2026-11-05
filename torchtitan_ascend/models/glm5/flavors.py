@@ -467,7 +467,7 @@ def _debugmodel(
     rope = ComplexRoPE.Config(
         dim=64,
         max_context_length=seq_len,
-        theta=1_000_000,
+        theta=8_000_000,
         scaling="none",
     )
     effective_index_sources = index_sources or tuple(range(8))
@@ -520,6 +520,7 @@ def _debugmodel(
             index_head_dim=128,
             index_topk=2048,
             attention_dropout=0.0,
+            mla_norm_eps=1e-5,
             rope=rope,
             enable_sp=bool(parallelism and parallelism.enable_sequence_parallel),
             enable_cp=bool(parallelism and parallelism.context_parallel_degree > 1),

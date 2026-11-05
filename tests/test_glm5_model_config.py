@@ -70,6 +70,15 @@ class TestGlm5Config(unittest.TestCase):
         self.assertGreater(
             sum(parameter.numel() for parameter in model.parameters()), 0
         )
+        self.assertEqual(config.layers[0].attention.rope.theta, 8_000_000)
+        attention = model.layers["0"].attention
+        for norm in (attention.q_norm, attention.kv_norm):
+            width = norm.weight.numel()
+            sample = torch.linspace(-1e-3, 1e-3, width).reshape(1, width)
+            expected = sample * torch.rsqrt(
+                sample.square().mean(-1, keepdim=True) + 1e-5
+            )
+            torch.testing.assert_close(norm(sample), expected)
 
     def test_mtp_flavor_builds_full_nextn_block(self) -> None:
         config = build_model_config(
