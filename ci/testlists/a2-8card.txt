@@ -1,0 +1,7 @@
+# A2 8-card test list
+
+# --- tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py (4) ---
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_no_ep_fsdp_gt_num_experts_shards_feature_dimensions
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_no_ep_fsdp_le_num_experts_shards_dim0
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_no_ep_hsdp_ignores_dp_replicate
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_with_ep_fsdp_gt_num_experts_shards_feature_dimensions

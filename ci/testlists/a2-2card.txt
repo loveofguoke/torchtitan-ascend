@@ -1,0 +1,18 @@
+# A2 2-card test list
+
+# --- tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py (2) ---
+tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestVisionEncoderCPUOffload::test_no_offload_policy_when_cpu_offload_is_off
+tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestVisionEncoderCPUOffload::test_vision_encoder_gets_the_same_offload_policy_as_the_decoder
+
+# --- tests/unit_tests/gpu/models/common/test_varlen_attention.py (1) ---
+tests/unit_tests/gpu/models/common/test_varlen_attention.py::TestVarlenUlyssesNumerics::test_packed_forward_backward_matches_unsharded
+
+# --- tests/unit_tests/gpu/models/flux/test_flux_attention.py (1) ---
+tests/unit_tests/gpu/models/flux/test_flux_attention.py::TestFluxVarlenContextParallel::test_gathered_kv_preserves_batch_boundaries
+
+# --- tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py (2) ---
+tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py::QKClipDistributedTest::test_reduces_head_maxima_and_clips_local_dtensor_weights
+tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py::QKClipDistributedTest::test_weight_scaling_is_communication_free
+
+# --- tests/unit_tests/gpu/models/qwen3_5/test_offset_rmsnorm.py (1) ---
+tests/unit_tests/gpu/models/qwen3_5/test_offset_rmsnorm.py::TestOffsetRMSNormTensorParallel::test_compiled_qk_norm
