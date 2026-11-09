@@ -2,7 +2,7 @@
 
 ## 加载与应用
 
-训练入口在导入 TorchTitan 前调用 `torchtitan_ascend.setup()`，由 `apply_all()` 发现并安装修复。仅导入本包不会安装修复。CI 的 CPU 和 A2 测试均在执行 pytest 的同一 Python 进程中调用 `setup()`。
+训练入口在导入 TorchTitan 前调用 `torchtitan_ascend.setup()`，由 `apply_all()` 发现并安装修复。仅导入本包不会安装修复。Python API 使用者应在构造 Trainer 前调用 `torchtitan_ascend.setup()`。CI 的 CPU 和 A2 测试均在执行 pytest 的同一 Python 进程中调用 `setup()`。
 
 自动发现按模块名排序，仅扫描本目录的公开模块和包；跳过 `registry.py` 及以 `_` 开头的模块。注册时不导入目标模块，安装时才解析目标。修复必须先于调用方保存原函数引用。
 
@@ -37,6 +37,7 @@
 | [storage.py](storage.py) | 使用 NPUStorageImpl 构造外部 storage，包括 remat 的空数据占位对象；依赖安装阶段的 storage 补丁。 |
 | [inductor.py](inductor.py) | 复用 NPU scheduler 构造，限制 sub-parent epilogue，并适配 reduction 接口。 |
 | [inductor_determinism.py](inductor_determinism.py) | 对确定性归约筛选配置并禁用计时选优缓存。 |
+| [pipeline_parallel.py](pipeline_parallel.py) | 在 NPU 上复用上游分布式初始化，并在构造 PipelineStage 前关闭独立的 PP per-edge 通信组（`pipeline_per_edge_p2p`），使用共享 HCCL 通信组；其他设备和进程组已初始化路径沿用上游实现。1F1B、Interleaved1F1B 和 PP/FSDP 组合已在 NPU 上完成短程拉起验证，范围见下文。 |
 | [sort_layout.py](sort_layout.py) | 在 fallback 创建时约束 NPU 稳定排序输入连续，覆盖普通 lowering 及节点级强制 fallback，避免错误 BlockMask 反向索引。 |
 | [flex_attention_determinism.py](flex_attention_determinism.py) | 启用严格确定性时，Flex 从首次调用尝试动态形状编译，并使用固定的缓存版本标记隔离修复前的图。 |
 | [checkpoint_rng.py](checkpoint_rng.py) | 初始化 Python、NumPy RNG，并在原生完整 DCP 检查点保存和恢复逐全局 rank 的 Python、NumPy、Torch CPU 和当前 NPU RNG；模型/HF 导出沿用上游策略。 |
@@ -78,3 +79,15 @@ Flex Attention 使用 BlockMask 记录哪些 Q 块和 KV 块需要计算。反�
 `checkpoint_rng.py` 还会在 worker 已绑定设备后，为完整 DCP 注册每个全局 rank 的 RNG，保存为 `rng.rank_<global_rank>`。
 
 限制：严格续训要求相同 rank 拓扑；缺失的随机流无法恢复，不构成严格零误差续训。旧检查点若没有 `rng`，可显式设置 `checkpointer.exclude_from_loading=["rng"]` 兼容加载。
+
+### 流水线并行验证
+
+验证 PP 时保持 `disable_cuda_graphs=True`。通信初始化测试隔离外部依赖；K3 回归用例检查真实的上游 Stage，缺少 TorchTitan 时跳过。K3 Stage 的 FSDP manual backward finalization 跟随上游实现，本仓不替换其前向方法。上述实现针对安装指南固定的 Torch/TorchTitan 版本，无需额外应用依赖补丁。在本仓目录运行：
+
+```bash
+python -m pytest tests/test_pipeline_parallel.py -q
+```
+
+在 910B2（单机 2 卡/4 卡）、CANN 9.1.0-beta.1、torch 2.15.0 + torch_npu、HCCL 上，以 Qwen3 debugmodel（dim 256、8 层、fp32 混合精度、`disable_cuda_graphs=True`）训练 3 步，验证三种组合：1F1B（PP=2）、Interleaved1F1B（PP=2、4 个 stage、4 个 microbatch）、PP=2 与 FSDP=2 组合（4 卡）。训练均正常退出，loss 从约 7.6 降至 6.4～6.5，grad_norm 有限且下降，PP+FSDP 各 rank 的 grad_norm 一致。该结果仅为短程拉起验证，不构成收敛、长期训练或多节点验收；数值对照仍需按[维护策略](../../docs/maintenance.md)另行记录。
+
+上游不允许 PP 与 weight tying 同时启用。Qwen3 debugmodel 的 `tok_embeddings.weight` 使用 `skip_param_init`，依赖与 `lm_head` 绑定共享权重，因此关闭绑定的 PP 配置需显式初始化 embedding，例如设置 `param_init={"weight": partial(nn.init.normal_, std=0.02)}`；上游支持 PP 的 flavor 本身使用未绑定初始化。未初始化时第一段输出恒为 0，loss 停在 ln(vocab)，各层梯度为 0。

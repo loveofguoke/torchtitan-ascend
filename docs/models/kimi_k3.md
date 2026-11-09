@@ -47,4 +47,4 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 \
 
 ## 支持范围
 
-配方提供图文训练，不支持视频输入和上下文并行（CP）。完整训练需自行配置数据、训练步数、学习率计划和检查点。
+配方提供图文训练，不支持视频输入和上下文并行（CP）。流水线并行（PP）的通信初始化已适配；通用 PP 路径已用 Qwen3 debugmodel 完成 1F1B、Interleaved1F1B 与 PP/FSDP 的短程拉起验证，K3 场景精度尚未验证，详见[运行时修复](../../torchtitan_ascend/patches/README.md)。完整训练需自行配置数据、训练步数、学习率计划和检查点。
