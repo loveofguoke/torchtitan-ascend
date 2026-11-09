@@ -15,6 +15,12 @@ def get_device_name() -> str:
     return npu.get_device_name(npu.current_device())
 
 
+@cache
+def get_num_vector_cores() -> int:
+    """Cache the vector core count after the worker selects its NPU."""
+    return torch.npu.get_device_properties(torch.npu.current_device()).vector_core_num
+
+
 def require_device(*supported: str, feature: str) -> None:
     """Require an NPU whose name starts with one of the supported model prefixes."""
     name = get_device_name()

@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Opt-in Triton attention residual using MindSpeed-MM's FP32 formula.
+"""Persistent Triton attention residual with online softmax.
 
-No atomics are used. Weight gradients reduce per-token contributions with
-PyTorch's deterministic reduction; token-local work is fused in Triton.
 """
 
 from __future__ import annotations
@@ -16,6 +14,8 @@ import triton.language as tl
 from torchtitan.config import derive, override
 from torchtitan.models.kimi_k3.model import AttentionResidual
 
+from torchtitan_ascend.device import get_num_vector_cores, require_device
+
 __all__ = [
     "attention_residual",
     "TritonAttentionResidual",
@@ -27,169 +27,393 @@ _eager_attention_residual = AttentionResidual(AttentionResidual.Config())
 
 
 @triton.jit
-def _scores(
-    V,
-    Gamma,
-    Project,
-    Rstd,
-    Scores,
+def _forward(
+    block_residual_ptr,
+    prefix_sum_ptr,
+    norm_w_ptr,
+    proj_w_ptr,
+    out_ptr,
+    saved_score_ptr,
+    saved_rstd_ptr,
+    saved_max_ptr,
+    saved_sumexp_ptr,
+    T: tl.constexpr,
+    H: tl.constexpr,
     N: tl.constexpr,
-    D: tl.constexpr,
     EPS: tl.constexpr,
-    BD: tl.constexpr,
+    TOKENS_PER_CORE: tl.constexpr,
+    HAS_PREFIX: tl.constexpr,
+    SUB_BLOCK_SIZE: tl.constexpr,
 ):
-    row = tl.program_id(0)
-    d = tl.arange(0, BD)
-    v = tl.load(V + row * D + d, d < D, 0).to(tl.float32)
-    gamma = tl.load(Gamma + d, d < D, 0).to(tl.float32)
-    project = tl.load(Project + d, d < D, 0).to(tl.float32)
-    rstd = tl.rsqrt(tl.sum(v * v, 0) / D + EPS)
-    score = tl.sum((v * rstd) * (gamma * project), 0)
-    tl.store(Rstd + row, rstd)
-    tl.store(Scores + row, score)
+    pid = tl.program_id(0)
+    tok0 = pid * TOKENS_PER_CORE
+    tok1 = tl.minimum(tok0 + TOKENS_PER_CORE, T)
+
+    cols = tl.arange(0, H)  # Full hidden dimension, including non-power-of-two widths
+    tok_offs = tl.arange(0, SUB_BLOCK_SIZE)  # sub-block token offsets
+
+    # Fused mul: score_weight = norm_w * proj_w (computed once, resident)
+    norm_w = tl.load(norm_w_ptr + cols).to(tl.float32)
+    proj_w = tl.load(proj_w_ptr + cols).to(tl.float32)
+    w = norm_w * proj_w
+
+    br_stride = N * H  # block_residual row stride
+    inv_H = 1.0 / H
+    num_streams = N + HAS_PREFIX
+
+    for tok_base in range(tok0, tok1, SUB_BLOCK_SIZE):
+        cur_toks = tok_offs + tok_base  # [SUB_BLOCK_SIZE]
+        tok_mask = cur_toks < tok1  # boundary mask
+        mask2d = tl.expand_dims(tok_mask, 1)  # [SUB_BLOCK_SIZE, 1]
+
+        # Online softmax: single-pass fused score + weighted sum (no stream reload)
+        max_score = tl.full([SUB_BLOCK_SIZE], -float("inf"), dtype=tl.float32)
+        exp_acc = tl.zeros([SUB_BLOCK_SIZE], dtype=tl.float32)
+        out_acc = tl.zeros([SUB_BLOCK_SIZE, H], dtype=tl.float32)
+
+        for s in range(N):
+            ptrs = (
+                block_residual_ptr
+                + cur_toks[:, None] * br_stride
+                + s * H
+                + cols[None, :]
+            )
+            v = tl.load(ptrs, mask=mask2d, other=0.0).to(tl.float32)
+            vv_sum = tl.sum(v * v, axis=1)
+            vw_sum = tl.sum(v * w[None, :], axis=1)
+            rstd = tl.rsqrt(vv_sum * inv_H + EPS)
+            score = vw_sum * rstd
+
+            tl.store(saved_score_ptr + cur_toks * num_streams + s, score, mask=tok_mask)
+            tl.store(saved_rstd_ptr + cur_toks * num_streams + s, rstd, mask=tok_mask)
+
+            m_new = tl.maximum(max_score, score)
+            correction = tl.exp(max_score - m_new)
+            exp_score = tl.exp(score - m_new)
+            out_acc = out_acc * correction[:, None] + exp_score[:, None] * v
+            exp_acc = exp_acc * correction + exp_score
+            max_score = m_new
+
+        if HAS_PREFIX:
+            # prefix_sum stream (s == N)
+            ptrs = prefix_sum_ptr + cur_toks[:, None] * H + cols[None, :]
+            v = tl.load(ptrs, mask=mask2d, other=0.0).to(tl.float32)
+            vv_sum = tl.sum(v * v, axis=1)
+            vw_sum = tl.sum(v * w[None, :], axis=1)
+            rstd = tl.rsqrt(vv_sum * inv_H + EPS)
+            score = vw_sum * rstd
+
+            tl.store(saved_score_ptr + cur_toks * num_streams + N, score, mask=tok_mask)
+            tl.store(saved_rstd_ptr + cur_toks * num_streams + N, rstd, mask=tok_mask)
+
+            m_new = tl.maximum(max_score, score)
+            correction = tl.exp(max_score - m_new)
+            exp_score = tl.exp(score - m_new)
+            out_acc = out_acc * correction[:, None] + exp_score[:, None] * v
+            exp_acc = exp_acc * correction + exp_score
+            max_score = m_new
+
+        tl.store(saved_max_ptr + cur_toks, max_score, mask=tok_mask)
+        tl.store(saved_sumexp_ptr + cur_toks, exp_acc, mask=tok_mask)
+
+        out = out_acc / exp_acc[:, None]
+
+        tl.store(
+            out_ptr + cur_toks[:, None] * H + cols[None, :],
+            out.to(out_ptr.dtype.element_ty),
+            mask=mask2d,
+        )
 
 
 @triton.jit
-def _mix(
-    V,
-    Scores,
-    Prob,
-    Out,
+def _backward(
+    block_residual_ptr,
+    prefix_sum_ptr,
+    norm_w_ptr,
+    proj_w_ptr,
+    grad_out_ptr,
+    grad_block_residual_ptr,
+    grad_prefix_sum_ptr,
+    grad_w_partials_ptr,
+    saved_score_ptr,
+    saved_rstd_ptr,
+    saved_max_ptr,
+    saved_sumexp_ptr,
+    T: tl.constexpr,
+    H: tl.constexpr,
     N: tl.constexpr,
-    D: tl.constexpr,
-    BN: tl.constexpr,
-    BD: tl.constexpr,
+    TOKENS_PER_CORE: tl.constexpr,
+    HAS_PREFIX: tl.constexpr,
+    NB: tl.constexpr,
+    SUB_BLOCK_SIZE: tl.constexpr,
 ):
-    t, tile = tl.program_id(0), tl.program_id(1)
-    n = tl.arange(0, BN)
-    d = tile * BD + tl.arange(0, BD)
-    scores = tl.load(Scores + t * N + n, n < N, -float("inf"))
-    exp_scores = tl.exp(scores - tl.max(scores, 0))
-    prob = exp_scores / tl.sum(exp_scores, 0)
-    v = tl.load(
-        V + (t * N + n[:, None]) * D + d[None, :],
-        (n[:, None] < N) & (d[None, :] < D),
-        0,
-    ).to(tl.float32)
-    output = tl.sum(prob[:, None] * v, 0)
-    tl.store(Out + t * D + d, output, d < D)
-    if tile == 0:
-        tl.store(Prob + t * N + n, prob, n < N)
+    pid = tl.program_id(0)
+    tok0 = pid * TOKENS_PER_CORE
+    tok1 = tl.minimum(tok0 + TOKENS_PER_CORE, T)
 
+    cols = tl.arange(0, H)
+    s_idx = tl.arange(0, NB)
+    tok_offs = tl.arange(0, SUB_BLOCK_SIZE)
 
-@triton.jit
-def _value_dot(V, DY, Dots, N: tl.constexpr, D: tl.constexpr, BD: tl.constexpr):
-    row = tl.program_id(0)
-    t = row // N
-    d = tl.arange(0, BD)
-    v = tl.load(V + row * D + d, d < D, 0).to(tl.float32)
-    dy = tl.load(DY + t * D + d, d < D, 0).to(tl.float32)
-    tl.store(Dots + row, tl.sum(v * dy, 0))
+    norm_w = tl.load(norm_w_ptr + cols).to(tl.float32)
+    proj_w = tl.load(proj_w_ptr + cols).to(tl.float32)
+    w = norm_w * proj_w
 
+    br_stride = N * H
+    inv_H = 1.0 / H
+    num_streams = N + HAS_PREFIX
+    grad_w_local = tl.zeros([H], dtype=tl.float32)
 
-@triton.jit
-def _grad_values(
-    V,
-    Gamma,
-    Project,
-    DY,
-    Rstd,
-    Scores,
-    Prob,
-    Dots,
-    DV,
-    DW,
-    N: tl.constexpr,
-    D: tl.constexpr,
-    BN: tl.constexpr,
-    BD: tl.constexpr,
-):
-    t, tile = tl.program_id(0), tl.program_id(1)
-    n = tl.arange(0, BN)
-    d = tile * BD + tl.arange(0, BD)
-    mask = (n[:, None] < N) & (d[None, :] < D)
-    v = tl.load(V + (t * N + n[:, None]) * D + d[None, :], mask, 0).to(tl.float32)
-    dy = tl.load(DY + t * D + d, d < D, 0).to(tl.float32)
-    gamma = tl.load(Gamma + d, d < D, 0).to(tl.float32)
-    project = tl.load(Project + d, d < D, 0).to(tl.float32)
-    prob = tl.load(Prob + t * N + n, n < N, 0)
-    dots = tl.load(Dots + t * N + n, n < N, 0)
-    rstd = tl.load(Rstd + t * N + n, n < N, 0)
-    scores = tl.load(Scores + t * N + n, n < N, 0)
-    ds = prob * (dots - tl.sum(prob * dots, 0))
-    dv = prob[:, None] * dy[None, :] + (ds * rstd)[:, None] * (
-        (gamma * project)[None, :] - v * (rstd * scores / D)[:, None]
-    )
-    dw = tl.sum((ds * rstd)[:, None] * v, 0)
-    tl.store(DV + (t * N + n[:, None]) * D + d[None, :], dv, mask)
-    tl.store(DW + t * D + d, dw, d < D)
+    for tok_base in range(tok0, tok1, SUB_BLOCK_SIZE):
+        cur_toks = tok_offs + tok_base
+        tok_mask = cur_toks < tok1
+        mask2d = tl.expand_dims(tok_mask, 1)
+
+        g = tl.load(
+            grad_out_ptr + cur_toks[:, None] * H + cols[None, :],
+            mask=mask2d,
+            other=0.0,
+        ).to(tl.float32)
+
+        # Load saved softmax reduction values from forward (avoids recomputing
+        # vv_sum, vw_sum, rstd, score, scores_max, sum_exp).
+        scores_max = tl.load(
+            saved_max_ptr + cur_toks, mask=tok_mask, other=-float("inf")
+        )
+        sum_exp = tl.load(saved_sumexp_ptr + cur_toks, mask=tok_mask, other=1.0)
+
+        # Pass 1: compute gv_s only; use saved scores for weighted_gv accumulation.
+        gv_arr = tl.full([NB, SUB_BLOCK_SIZE], 0.0, dtype=tl.float32)
+        weighted_gv = tl.zeros([SUB_BLOCK_SIZE], dtype=tl.float32)
+
+        for s in range(N):
+            ptrs = (
+                block_residual_ptr
+                + cur_toks[:, None] * br_stride
+                + s * H
+                + cols[None, :]
+            )
+            v = tl.load(ptrs, mask=mask2d, other=0.0).to(tl.float32)
+            gv_s = tl.sum(g * v, axis=1)
+            score_s = tl.load(
+                saved_score_ptr + cur_toks * num_streams + s,
+                mask=tok_mask,
+                other=-float("inf"),
+            )
+            weighted_gv += tl.exp(score_s - scores_max) * gv_s
+            gv_arr = tl.where(s_idx[:, None] == s, gv_s[None, :], gv_arr)
+
+        if HAS_PREFIX:
+            ptrs = prefix_sum_ptr + cur_toks[:, None] * H + cols[None, :]
+            v = tl.load(ptrs, mask=mask2d, other=0.0).to(tl.float32)
+            gv_s = tl.sum(g * v, axis=1)
+            score_s = tl.load(
+                saved_score_ptr + cur_toks * num_streams + N,
+                mask=tok_mask,
+                other=-float("inf"),
+            )
+            weighted_gv += tl.exp(score_s - scores_max) * gv_s
+            gv_arr = tl.where(s_idx[:, None] == N, gv_s[None, :], gv_arr)
+
+        weighted_gv = weighted_gv / sum_exp
+
+        # Pass 2: compute gradients using saved rstd, score (no recompute).
+        for s in range(N):
+            ptrs = (
+                block_residual_ptr
+                + cur_toks[:, None] * br_stride
+                + s * H
+                + cols[None, :]
+            )
+            v = tl.load(ptrs, mask=mask2d, other=0.0).to(tl.float32)
+            rstd_s = tl.load(
+                saved_rstd_ptr + cur_toks * num_streams + s, mask=tok_mask, other=0.0
+            )
+            score_s = tl.load(
+                saved_score_ptr + cur_toks * num_streams + s, mask=tok_mask, other=0.0
+            )
+            gv_s = tl.sum(tl.where(s_idx[:, None] == s, gv_arr, 0.0), axis=0)
+
+            k = v * rstd_s[:, None]
+            prob = tl.exp(score_s - scores_max) / sum_exp
+            delta = gv_s - weighted_gv
+            dscore_dv = (
+                rstd_s[:, None] * w[None, :]
+                - inv_H * v * rstd_s[:, None] * rstd_s[:, None] * score_s[:, None]
+            )
+            grad_v = prob[:, None] * (g + delta[:, None] * dscore_dv)
+
+            tl.store(
+                grad_block_residual_ptr
+                + cur_toks[:, None] * br_stride
+                + s * H
+                + cols[None, :],
+                grad_v.to(grad_block_residual_ptr.dtype.element_ty),
+                mask=mask2d,
+            )
+            grad_w_local += tl.sum(prob[:, None] * delta[:, None] * k, axis=0)
+
+        if HAS_PREFIX:
+            ptrs = prefix_sum_ptr + cur_toks[:, None] * H + cols[None, :]
+            v = tl.load(ptrs, mask=mask2d, other=0.0).to(tl.float32)
+            rstd_s = tl.load(
+                saved_rstd_ptr + cur_toks * num_streams + N, mask=tok_mask, other=0.0
+            )
+            score_s = tl.load(
+                saved_score_ptr + cur_toks * num_streams + N, mask=tok_mask, other=0.0
+            )
+            gv_s = tl.sum(tl.where(s_idx[:, None] == N, gv_arr, 0.0), axis=0)
+
+            k = v * rstd_s[:, None]
+            prob = tl.exp(score_s - scores_max) / sum_exp
+            delta = gv_s - weighted_gv
+            dscore_dv = (
+                rstd_s[:, None] * w[None, :]
+                - inv_H * v * rstd_s[:, None] * rstd_s[:, None] * score_s[:, None]
+            )
+            grad_v = prob[:, None] * (g + delta[:, None] * dscore_dv)
+
+            tl.store(
+                grad_prefix_sum_ptr + cur_toks[:, None] * H + cols[None, :],
+                grad_v.to(grad_prefix_sum_ptr.dtype.element_ty),
+                mask=mask2d,
+            )
+            grad_w_local += tl.sum(prob[:, None] * delta[:, None] * k, axis=0)
+
+    tl.store(grad_w_partials_ptr + pid * H + cols, grad_w_local)
 
 
 class _AttentionResidual(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, values, gamma, project, eps):
-        values = values.contiguous()
+    def forward(
+        ctx, partial_block_TD, block_residual_TND, gamma, project, eps, num_cores
+    ):
+        blocks_TND = block_residual_TND.contiguous()
+        prefix_TD = (
+            partial_block_TD.contiguous() if partial_block_TD is not None else None
+        )
         gamma, project = gamma.contiguous(), project.contiguous()
-        tokens, blocks, dim = values.shape
-        rstd = torch.empty((tokens, blocks), device=values.device, dtype=torch.float32)
-        scores, prob = torch.empty_like(rstd), torch.empty_like(rstd)
-        output = torch.empty((tokens, dim), device=values.device, dtype=values.dtype)
-        block_dim = triton.next_power_of_2(dim)
-        block_count = triton.next_power_of_2(blocks)
-        _scores[(tokens * blocks,)](
-            values, gamma, project, rstd, scores, blocks, dim, eps, block_dim
+        num_tokens, num_blocks, dim = blocks_TND.shape
+        has_prefix = prefix_TD is not None
+        num_streams = num_blocks + has_prefix
+        dtype = (
+            torch.promote_types(blocks_TND.dtype, prefix_TD.dtype)
+            if prefix_TD is not None
+            else blocks_TND.dtype
         )
-        _mix[(tokens, triton.cdiv(dim, 128))](
-            values, scores, prob, output, blocks, dim, block_count, 128
+        device = blocks_TND.device
+        output_TD = torch.empty((num_tokens, dim), device=device, dtype=dtype)
+        scores_TN = torch.empty(
+            (num_tokens, num_streams), device=device, dtype=torch.float32
         )
-        ctx.save_for_backward(values, gamma, project, rstd, scores, prob)
-        return output
+        rstd_TN = torch.empty_like(scores_TN)
+        max_score_T = torch.empty((num_tokens,), device=device, dtype=torch.float32)
+        sum_exp_T = torch.empty_like(max_score_T)
 
-    @staticmethod
-    def backward(ctx, dy):
-        values, gamma, project, rstd, scores, prob = ctx.saved_tensors
-        tokens, blocks, dim = values.shape
-        dy = dy.contiguous()
-        dots = torch.empty_like(scores)
-        dv = torch.empty_like(values)
-        dw = torch.empty((tokens, dim), device=values.device, dtype=torch.float32)
-        _value_dot[(tokens * blocks,)](
-            values, dy, dots, blocks, dim, triton.next_power_of_2(dim)
-        )
-        # The Ascend graph pass corrupts the parameter-gradient reduction.
-        _grad_values[(tokens, triton.cdiv(dim, 128))](
-            values,
+        tokens_per_core = triton.cdiv(num_tokens, num_cores)
+        grid = (triton.cdiv(num_tokens, tokens_per_core),)
+        _forward[grid](
+            blocks_TND,
+            prefix_TD if has_prefix else blocks_TND,
             gamma,
             project,
-            dy,
-            rstd,
-            scores,
-            prob,
-            dots,
-            dv,
-            dw,
-            blocks,
-            dim,
-            triton.next_power_of_2(blocks),
-            128,
-            enable_graph_optimize=False,
+            output_TD,
+            scores_TN,
+            rstd_TN,
+            max_score_T,
+            sum_exp_T,
+            T=num_tokens,
+            H=dim,
+            N=num_blocks,
+            EPS=eps,
+            TOKENS_PER_CORE=tokens_per_core,
+            HAS_PREFIX=has_prefix,
+            SUB_BLOCK_SIZE=1,
+            multibuffer=True,
         )
-        dw = dw.sum(0)
+        ctx.save_for_backward(
+            blocks_TND,
+            prefix_TD,
+            gamma,
+            project,
+            scores_TN,
+            rstd_TN,
+            max_score_T,
+            sum_exp_T,
+        )
+        ctx.tokens_per_core = tokens_per_core
+        return output_TD
+
+    @staticmethod
+    def backward(ctx, grad_out_TD):
+        (
+            blocks_TND,
+            prefix_TD,
+            gamma,
+            project,
+            scores_TN,
+            rstd_TN,
+            max_score_T,
+            sum_exp_T,
+        ) = ctx.saved_tensors
+        num_tokens, num_blocks, dim = blocks_TND.shape
+        has_prefix = prefix_TD is not None
+        num_programs = triton.cdiv(num_tokens, ctx.tokens_per_core)
+        grad_blocks_TND = torch.empty_like(blocks_TND)
+        grad_prefix_TD = torch.empty_like(prefix_TD) if has_prefix else None
+        grad_weight_CD = torch.empty(
+            (num_programs, dim), device=blocks_TND.device, dtype=torch.float32
+        )
+        # FP32 streams and single-token loops can exhaust the Ascend UB when
+        # double buffering is enabled.
+        use_multibuffer = grad_out_TD.dtype in (torch.bfloat16, torch.float16) and (
+            ctx.tokens_per_core > 1
+        )
+        _backward[(num_programs,)](
+            blocks_TND,
+            prefix_TD if has_prefix else blocks_TND,
+            gamma,
+            project,
+            grad_out_TD.contiguous(),
+            grad_blocks_TND,
+            grad_prefix_TD if has_prefix else grad_blocks_TND,
+            grad_weight_CD,
+            scores_TN,
+            rstd_TN,
+            max_score_T,
+            sum_exp_T,
+            T=num_tokens,
+            H=dim,
+            N=num_blocks,
+            TOKENS_PER_CORE=ctx.tokens_per_core,
+            HAS_PREFIX=has_prefix,
+            NB=max(triton.next_power_of_2(num_blocks + has_prefix), 8),
+            SUB_BLOCK_SIZE=1,
+            multibuffer=use_multibuffer,
+        )
+        # Each program writes a separate partial, so no floating-point atomics
+        # are needed for the weight gradient.
+        grad_weight_D = grad_weight_CD.sum(0)
         return (
-            dv,
-            (dw * project.float()).to(gamma.dtype),
-            (dw * gamma.float()).to(project.dtype),
+            grad_prefix_TD,
+            grad_blocks_TND,
+            (grad_weight_D * project.float()).to(gamma.dtype),
+            (grad_weight_D * gamma.float()).to(project.dtype),
+            None,
             None,
         )
 
 
-def attention_residual(partial_block_TD, block_residual_TND, projection, norm):
-    values = (
-        block_residual_TND
-        if partial_block_TD is None
-        else torch.cat((block_residual_TND, partial_block_TD.unsqueeze(1)), dim=1)
-    )
-    if values.shape[1] == 0 or values.shape[0] == 0:
+def _num_attn_res_cores() -> int:
+    require_device("Ascend950", feature="Triton attention residual")
+    return get_num_vector_cores()
+
+
+def attention_residual(
+    partial_block_TD, block_residual_TND, projection, norm, *, num_cores=None
+):
+    num_tokens, num_blocks, _ = block_residual_TND.shape
+    if not num_tokens or (num_blocks == 0 and partial_block_TD is None):
         return _eager_attention_residual(
             partial_block_TD, block_residual_TND, projection, norm
         )
@@ -198,7 +422,12 @@ def attention_residual(partial_block_TD, block_residual_TND, projection, norm):
             "Attention residual requires weighted RMSNorm and explicit epsilon"
         )
     return _AttentionResidual.apply(
-        values, norm.weight, projection.weight.squeeze(0), norm.eps
+        partial_block_TD,
+        block_residual_TND,
+        norm.weight,
+        projection.weight.squeeze(0),
+        norm.eps,
+        _num_attn_res_cores() if num_cores is None else num_cores,
     )
 
 
@@ -207,9 +436,17 @@ class TritonAttentionResidual(AttentionResidual):
     class Config(AttentionResidual.Config):
         pass
 
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
+        self.num_cores = _num_attn_res_cores()
+
     def __call__(self, partial_block_TD, block_residual_TND, projection, norm):
         return attention_residual(
-            partial_block_TD, block_residual_TND, projection, norm
+            partial_block_TD,
+            block_residual_TND,
+            projection,
+            norm,
+            num_cores=self.num_cores,
         )
 
 

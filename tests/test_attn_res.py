@@ -19,7 +19,11 @@ def test_attn_res_packing_and_gradients(monkeypatch, partial):
         torch.randn(4, 7, dtype=torch.float64, requires_grad=True) if partial else None
     )
 
-    def kernel(values, gamma, project, eps):
+    def kernel(prefix, blocks, gamma, project, eps, num_cores):
+        assert num_cores == 48
+        values = (
+            blocks if prefix is None else torch.cat((blocks, prefix.unsqueeze(1)), 1)
+        )
         values_float = values.float()
         keys = values_float * torch.rsqrt(
             values_float.square().mean(-1, keepdim=True) + eps
@@ -29,6 +33,7 @@ def test_attn_res_packing_and_gradients(monkeypatch, partial):
             (scores.softmax(-1).unsqueeze(1) @ values_float).squeeze(1).to(values.dtype)
         )
 
+    monkeypatch.setattr(MODULE, "_num_attn_res_cores", lambda: 48)
     monkeypatch.setattr(MODULE._AttentionResidual, "apply", kernel)
     a = MODULE.TritonAttentionResidual.Config().build()(prefix, blocks, proj, norm)
     b = MODULE._eager_attention_residual(prefix, blocks, proj, norm)
@@ -99,10 +104,11 @@ def test_attn_res_npu_matches_reference(dim, partial):
 
 def test_recipe_registers_residual_override_without_rebinding(monkeypatch):
     from torchtitan.models.kimi_k2_7 import vision_encoder
-    from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu
+    from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu, npu_fusion
 
     monkeypatch.setattr(vision_encoder, "ComplexRoPE", vision_encoder.ComplexRoPE)
     original = MODULE.AttentionResidual.__call__
     config = kimi_k3_debugmodel_npu()
+    npu_fusion(config)
     assert MODULE.enable_triton_attn_res() in config.override.imports
     assert MODULE.AttentionResidual.__call__ is original
