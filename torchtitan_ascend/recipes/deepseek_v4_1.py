@@ -46,12 +46,12 @@ from torchtitan_ascend.models.deepseek_v4_1 import build_model_config
 
 
 def npu_changes(config: Trainer.Config) -> None:
-    """Activate Ascend operator overrides in place."""
+    """Activate Ascend kernels without claiming optional routed-expert subtrees."""
     from torchtitan_ascend.overrides.rms_norm import npu_rms_norm
     from torchtitan_ascend.overrides.rope import real_cache_rope
-    from torchtitan_ascend.overrides.swiglu import npu_fused_swiglu
+    from torchtitan_ascend.overrides.swiglu import npu_shared_expert_swiglu
 
-    for override_fn in (real_cache_rope, npu_rms_norm, npu_fused_swiglu):
+    for override_fn in (real_cache_rope, npu_rms_norm, npu_shared_expert_swiglu):
         add_override(config, override_fn)
 
 

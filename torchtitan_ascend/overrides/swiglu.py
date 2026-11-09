@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""SwiGLU activation via ``torch_npu.npu_swiglu``.
-"""
+"""SwiGLU activation via ``torch_npu.npu_swiglu``."""
 
 from __future__ import annotations
 
@@ -41,3 +40,13 @@ class AscendSwiGLU(BinaryActivationFn):
 )
 def npu_fused_swiglu(cfg: SwiGLU.Config) -> AscendSwiGLU.Config:
     return derive(cfg, AscendSwiGLU.Config)
+
+
+@override(
+    target=SwiGLU.Config,
+    exact=True,
+    fqns=["model.layers.*.feed_forward.shared_experts.activation_fn"],
+    description="Ascend SwiGLU for DS-V4.1 shared experts",
+)
+def npu_shared_expert_swiglu(cfg: SwiGLU.Config) -> AscendSwiGLU.Config:
+    return npu_fused_swiglu(cfg)
