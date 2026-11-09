@@ -2,7 +2,11 @@
 # All rights reserved.
 # Copyright (c) 2026 Tianjin University
 # SPDX-License-Identifier: BSD-3-Clause
-"""Ascend implementations of Kimi Delta Attention components."""
+"""Ascend implementations of Kimi Delta Attention components.
+
+The model uses [1, T, H, D], with a singleton batch and packed tokens T.
+AscendC uses NTD, where N is the head count H, internally.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ from torchtitan.models.base.module import Module
 from torchtitan.models.common.attention.kda import InnerKDA, KDAKernel
 from torchtitan.models.common.attention.linear_attention import LinearAttentionMetadata
 
+from torchtitan_ascend.device import require_device
 from torchtitan_ascend.models.common.linear_attention import causal_conv1d
 
 __all__ = [
@@ -32,33 +37,20 @@ def _l2norm(x):
     return (x_f * torch.rsqrt(x_f.pow(2).sum(-1, keepdim=True) + 1e-6)).type_as(x)
 
 
-def _l2norm_bwd(x, dx):
-    """Backpropagate through ``_l2norm`` with FP32 accumulation.
-
-    Uses the derivative of ``x / sqrt(sum(x**2) + 1e-6)``.
-    """
-    x_f = x.float()
-    norm = torch.sqrt(x_f.pow(2).sum(-1, keepdim=True) + 1e-6)
-    q = x_f / norm
-    return ((dx.float() - q * (dx.float() * q).sum(-1, keepdim=True)) / norm).to(
-        dx.dtype
-    )
+def _to_ntd(x):
+    """Convert [1, T, H, ...] to packed [H, T, ...]."""
+    return x.squeeze(0).transpose(0, 1).contiguous()
 
 
-def _to_bnsd(x):
-    """(1, T, H, D) -> (1, H, T, D)."""
-    return x.transpose(1, 2).contiguous()
-
-
-def _to_bsnd(x):
-    """(1, H, T, D) -> (1, T, H, D)."""
-    return x.transpose(1, 2).contiguous()
+def _from_ntd(x):
+    """Restore packed [H, T, ...] to the model's [1, T, H, ...]."""
+    return x.transpose(0, 1).unsqueeze(0).contiguous()
 
 
 class NpuChunkKDAFunction(torch.autograd.Function):
-    """Fused KDA forward/backward with FP32 gates and explicit normalization.
+    """Fused KDA forward/backward with Q/K L2Norm and beta sigmoid.
 
-    Backward supports head dimension 128 and consumes BNSD intermediates.
+    Backward supports head dimension 128 and consumes packed NTD intermediates.
     """
 
     @staticmethod
@@ -95,38 +87,36 @@ class NpuChunkKDAFunction(torch.autograd.Function):
         A_log = A_log.float()
         dt_bias = dt_bias.float()
 
-        q_n = _l2norm(q) if use_qk_l2norm_in_kernel else q
-        k_n = _l2norm(k) if use_qk_l2norm_in_kernel else k
+        ctx.num_heads = q.shape[2]
+        ctx.g_in_dt, ctx.beta_in_dt = g.dtype, beta.dtype
+        q, k, v, g, beta = map(_to_ntd, (q, k, v, g, beta))
 
-        beta_raw = beta
+        # The forward kernel exports normalized Q/K and their inverse norms.
+        q_n = torch.empty_like(q) if use_qk_l2norm_in_kernel else q
+        k_n = torch.empty_like(k) if use_qk_l2norm_in_kernel else k
+        q_rstd = (
+            torch.empty(q.shape[:-1], dtype=torch.float32, device=q.device)
+            if use_qk_l2norm_in_kernel
+            else None
+        )
+        k_rstd = (
+            torch.empty(k.shape[:-1], dtype=torch.float32, device=k.device)
+            if use_qk_l2norm_in_kernel
+            else None
+        )
         beta_f = (
-            beta_raw.float().sigmoid()
+            torch.empty_like(beta, dtype=torch.float32)
             if use_beta_sigmoid_in_kernel
-            else beta_raw.float()
+            else beta
         )
 
-        g_f = g.float()
-
-        (
-            o,
-            final_state,
-            gk,
-            Aqk,
-            Akk,
-            w,
-            u,
-            qg,
-            kg,
-            v_new,
-            h,
-            initial_state_out,
-        ) = npu_chunk_kda_fwd(
-            q_n,
-            k_n,
+        (o, final_state, gk, Aqk, Akk, w, _, qg, kg, v_new, h, _,) = npu_chunk_kda_fwd(
+            q,
+            k,
             v,
-            g_f,
-            beta_f,
-            layout="BSND",
+            g,
+            beta,
+            layout="NTD",
             initial_state=initial_state,
             output_final_state=output_final_state,
             cu_seqlens=cu_seqlens,
@@ -139,26 +129,34 @@ class NpuChunkKDAFunction(torch.autograd.Function):
             disable_recompute=True,
             scale=float(scale),
             chunk_size=chunk_size,
+            use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
+            use_beta_sigmoid_in_kernel=use_beta_sigmoid_in_kernel,
+            use_exp2=True,
+            q_hat_out=q_n if use_qk_l2norm_in_kernel else None,
+            k_hat_out=k_n if use_qk_l2norm_in_kernel else None,
+            q_rstd_out=q_rstd,
+            k_rstd_out=k_rstd,
+            beta_eff_out=beta_f if use_beta_sigmoid_in_kernel else None,
         )
 
         ctx.save_for_backward(
-            q,
-            k,
+            q_n,
+            k_n,
             v,
             gk,
-            g_f,
-            beta_raw,
+            g,
             beta_f,
             A_log,
             dt_bias,
             Aqk,
             Akk,
             w,
-            u,
             qg,
             kg,
             v_new,
             h,
+            q_rstd,
+            k_rstd,
         )
         # Plain host data cannot go through save_for_backward.
         ctx.cu_seqlens = cu_seqlens
@@ -168,78 +166,57 @@ class NpuChunkKDAFunction(torch.autograd.Function):
         ctx.lower_bound = lower_bound
         ctx.scale = scale
         ctx.use_gate_in_kernel = use_gate_in_kernel
-        ctx.use_qk_l2norm_in_kernel = use_qk_l2norm_in_kernel
         ctx.use_beta_sigmoid_in_kernel = use_beta_sigmoid_in_kernel
         ctx.A_log_in_dt = A_log_in_dt
         ctx.dt_bias_in_dt = dt_bias_in_dt
-        return o.type_as(q), final_state
+        ctx.dt_bias_shape = dt_bias.shape
+        return o.unsqueeze(0).type_as(q), final_state
 
     @staticmethod
     def backward(ctx, do, dht):
         (
-            q,
-            k,
+            q_n,
+            k_n,
             v,
             gk,
-            g_f,
-            beta_raw,
+            g,
             beta_f,
             A_log,
             dt_bias,
             Aqk,
             Akk,
             w,
-            u,
             qg,
             kg,
             v_new,
             h,
+            q_rstd,
+            k_rstd,
         ) = ctx.saved_tensors
         cu_seqlens = ctx.cu_seqlens
 
-        head_dim = q.shape[-1]
+        head_dim = q_n.shape[-1]
         assert head_dim == 128, "NPU KDA backward requires head_dim == 128"
         from fla_npu.ops import ascendc
 
-        # Fused ascendc backward: K=V=128 only. Consumes BNSD tensors;
-        # dt_bias is [H, K] here. Varlen calls take [H, T, D] (batchless)
-        # inputs and return batchless gradients; dense calls take
-        # [B, H, T, D].
-        _is_varlen = cu_seqlens is not None
-
-        # The backward must consume the *normalized* q/k the forward fed the
-        # kernel -- the saved Aqk/Akk/... intermediates are built from them.
-        # The raw q/k saved for backward are used only for the l2-norm chain
-        # rule further down.
-        q_n = _l2norm(q) if ctx.use_qk_l2norm_in_kernel else q
-        k_n = _l2norm(k) if ctx.use_qk_l2norm_in_kernel else k
-
-        def _bwd_in(x_BHTD):
-            return x_BHTD[0] if _is_varlen else x_BHTD
-
-        def _bwd_out(x_HTD):
-            return x_HTD.unsqueeze(0) if _is_varlen else x_HTD
-
         dq, dk, dv, db, dg, dh0, dA, dbias = ascendc.npu_chunk_kda_bwd(
-            _bwd_in(_to_bnsd(q_n)),
-            _bwd_in(_to_bnsd(k_n)),
-            _bwd_in(_to_bnsd(v)),
-            _bwd_in(beta_f.transpose(1, 2).contiguous()),
-            _bwd_in(gk),
-            _bwd_in(Aqk),
-            _bwd_in(Akk),
-            _bwd_in(w),
-            _bwd_in(qg),
-            _bwd_in(kg),
-            _bwd_in(v_new),
-            # h from the fwd is (B, NT, H, K, V); the varlen backward takes
-            # (NT, H, K, V), the dense backward (B, NT, H, K, V).
-            _bwd_in(h),
-            _bwd_in(_to_bnsd(do)),
+            q_n,
+            k_n,
+            v,
+            beta_f,
+            gk,
+            Aqk,
+            Akk,
+            w,
+            qg,
+            kg,
+            v_new,
+            h,
+            _to_ntd(do),
             float(ctx.scale),
-            raw_g=_bwd_in(_to_bnsd(g_f)) if ctx.use_gate_in_kernel else None,
+            raw_g=g if ctx.use_gate_in_kernel else None,
             A_log=A_log,
-            dt_bias=dt_bias.reshape(q.shape[2], head_dim)
+            dt_bias=dt_bias.reshape(ctx.num_heads, head_dim)
             if dt_bias is not None
             else None,
             chunk_size=ctx.chunk_size,
@@ -247,25 +224,27 @@ class NpuChunkKDAFunction(torch.autograd.Function):
             lower_bound=ctx.lower_bound,
             use_gate_in_kernel=ctx.use_gate_in_kernel,
             cu_seqlens=cu_seqlens,
+            chunk_indices=ctx.chunk_indices,
+            disable_recompute=True,
+            use_exp2=True,
+            state_v_first=False,
+            implementation="optimized",
+            q_rstd=q_rstd,
+            k_rstd=k_rstd,
         )
 
-        dq = _to_bsnd(_bwd_out(dq))
-        dk = _to_bsnd(_bwd_out(dk))
-        dv = _to_bsnd(_bwd_out(dv))
-        dg = _to_bsnd(_bwd_out(dg))
-        db = _to_bsnd(_bwd_out(db))  # ascendc bwd returns BNSD; beta_raw is BSND
-        if ctx.use_qk_l2norm_in_kernel:
-            dq = _l2norm_bwd(q, dq)
-            dk = _l2norm_bwd(k, dk)
+        # Apply the sigmoid derivative using the forward beta result.
         if ctx.use_beta_sigmoid_in_kernel:
-            db = db * beta_raw.float().sigmoid() * (1 - beta_raw.float().sigmoid())
+            db = db.float() * beta_f * (1 - beta_f)
+
+        dq, dk, dv, dg, db = map(_from_ntd, (dq, dk, dv, dg, db))
 
         return (
-            dq.to(q),
-            dk.to(k),
+            dq.to(q_n),
+            dk.to(k_n),
             dv.to(v),
-            dg.to(g_f),
-            db.to(beta_raw),
+            dg.to(ctx.g_in_dt),
+            db.to(ctx.beta_in_dt),
             None,  # scale
             None,  # initial_state
             None,  # output_final_state
@@ -277,7 +256,7 @@ class NpuChunkKDAFunction(torch.autograd.Function):
             None,  # lower_bound
             None,  # use_gate_in_kernel
             dA.to(ctx.A_log_in_dt) if dA is not None else None,  # A_log
-            dbias.reshape(-1).to(ctx.dt_bias_in_dt)
+            dbias.reshape(ctx.dt_bias_shape).to(ctx.dt_bias_in_dt)
             if dbias is not None
             else None,  # dt_bias
             None,  # use_qk_l2norm_in_kernel
@@ -314,11 +293,18 @@ def npu_chunk_kda(
     cp_context=None,
     **kwargs,
 ):
-    """Run fla_npu's fused AscendC KDA with head_dim=128."""
+    """Run AscendC KDA on packed [1, T, H, 128] inputs.
+
+    Without cu_seqlens, all tokens belong to one packed sequence.
+    """
+    if q.ndim != 4 or q.shape[0] != 1:
+        raise ValueError("NPU KDA expects packed inputs with shape [1, T, H, D].")
     if q.shape[-1] != 128:
         raise ValueError(
             f"NPU KDA backend requires head_dim == 128, got {q.shape[-1]}."
         )
+    if initial_state is not None or output_final_state:
+        raise ValueError("KDA training does not support initial or final states.")
     A_log = kwargs.pop("A_log", None)
     dt_bias = kwargs.pop("dt_bias", None)
     if disable_recompute is not False:
@@ -330,13 +316,27 @@ def npu_chunk_kda(
     if cu_seqlens_cpu is not None:
         cu_seqlens = cu_seqlens_cpu
     chunk_indices = None
-    if cu_seqlens is not None:
-        if torch.is_tensor(cu_seqlens):
-            cu_seqlens = [int(x) for x in cu_seqlens.cpu().tolist()]
-        else:
-            cu_seqlens = [int(x) for x in cu_seqlens]
-        # The backend derives the canonical sequence-major chunk table;
-        # let it select the ordering by passing None.
+    if cu_seqlens is None:
+        cu_seqlens = [0, q.shape[1]]
+    elif torch.is_tensor(cu_seqlens):
+        cu_seqlens = [int(x) for x in cu_seqlens.cpu().tolist()]
+    else:
+        cu_seqlens = [int(x) for x in cu_seqlens]
+    if len(cu_seqlens) < 2:
+        raise ValueError(
+            "cu_seqlens must contain at least the start and end boundaries."
+        )
+    # Remove empty documents while preserving nonempty sequence boundaries.
+    cu_seqlens = [
+        cu_seqlens[0],
+        *[
+            end
+            for start, end in zip(cu_seqlens[:-1], cu_seqlens[1:], strict=True)
+            if end != start
+        ],
+    ]
+    # The backend derives the canonical sequence-major chunk table;
+    # let it select the ordering by passing None.
     o, final_state = NpuChunkKDAFunction.apply(
         q,
         k,
@@ -369,6 +369,7 @@ class AscendKDAKernel(KDAKernel):
         pass
 
     def __init__(self, config: Config):
+        require_device("Ascend950", feature="fla-npu KDA")
         import_module("fla_npu")
         Module.__init__(self)
         self.lower_bound = config.lower_bound
@@ -442,6 +443,7 @@ class AscendInnerKDA(InnerKDA):
         pass
 
     def __init__(self, config: Config):
+        require_device("Ascend950", feature="fla-npu KDA convolution")
         Module.__init__(self)
         self.head_dim = config.head_dim
         self.kernel = config.kernel.build()
