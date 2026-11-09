@@ -10,6 +10,11 @@ Each configuration function is selected by module and name in the launched
 training process, so it must stay importable from this module.
 """
 
+from torchtitan_ascend import setup
+
+# Install runtime patches before importing TorchTitan and its optional backends.
+setup()
+
 import logging
 import os
 from collections.abc import Iterator
@@ -104,7 +109,7 @@ class SDCReplayMismatchTrainingEngine(TrainingEngine):
             return loss
 
         with torch.no_grad():
-            for model_part in self.model_parts:
+            for model_part in cast(TrainingEngine, self).model_parts:
                 for parameter in model_part.parameters():
                     if parameter.grad is None:
                         continue
@@ -1117,6 +1122,7 @@ def build_features_test_list() -> list[IntegrationTestDefinition]:
             test_name="override_fused_swiglu_moe",
             ngpu=4,
             use_real_pg=True,
+            disabled=_FLEX_DISABLED,
         ),
         IntegrationTestDefinition(
             configs=[llama3_debugmodel_varlen_attn_fsdp4_sac],

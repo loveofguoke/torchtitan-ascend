@@ -4,7 +4,7 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 [cpu|a2] [extra pytest arguments...]"
+    echo "Usage: $0 [cpu|a2-1card|a2-2card|a2-8card] [extra pytest arguments...]"
     echo 'Environment: WORKDIR (default /opt/torchtitan), BATCH (default 150)'
 }
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
@@ -17,7 +17,7 @@ if [[ $# -gt 0 ]]; then
     shift
 fi
 case "$TARGET" in
-    cpu|a2) ;;
+    cpu|a2-1card|a2-2card|a2-8card) ;;
     *) usage >&2; exit 2 ;;
 esac
 BATCH="${BATCH:-150}"
@@ -47,6 +47,26 @@ echo "[run-testlist] target=$TARGET entries=$COUNT"
 WORKDIR="${WORKDIR:-/opt/torchtitan}"
 cd "$WORKDIR" || { echo "ERROR: workdir $WORKDIR not found" >&2; exit 2; }
 
+source_dir="$(cd "$HERE/.." && pwd)"
+# Suppress the old NPU startup hook only while installing the checkout.
+PYTHONPATH= TORCH_DEVICE_BACKEND_AUTOLOAD=0 python -m pip install --no-deps -e "$source_dir"
+if [[ "$TARGET" == a2* ]]; then
+    cp -a "$source_dir/tests/." ./tests/
+else
+    cp -a "$source_dir/tests/unit_tests/cpu/." ./tests/unit_tests/cpu/
+fi
+
+# Apply patches in the same Python process that collects and runs the tests.
+run_pytest() {
+    python -c '
+from torchtitan_ascend import setup
+setup()
+import pytest
+import sys
+sys.exit(pytest.main(sys.argv[1:]))
+' "$@"
+}
+
 failed_files="$PARTS_DIR/failures.log"
 : > "$failed_files"
 split -l "$BATCH" "$CASES" "$PARTS_DIR/part."
@@ -57,12 +77,12 @@ for part in "$PARTS_DIR"/part.*; do
         batch+=("$one")
     done < "$part"
     echo "[run-testlist] running ${#batch[@]} entries"
-    if pytest "$@" -vv -rs "${batch[@]}"; then
+    if run_pytest "$@" -vv -rs "${batch[@]}"; then
         :
     else
         echo '[run-testlist] batch had failures; re-running case-by-case to isolate them'
         for one in "${batch[@]}"; do
-            if ! pytest "$@" -q "$one"; then
+            if ! run_pytest "$@" -q "$one"; then
                 echo "FAILED_OR_ERROR $one" | tee -a "$failed_files"
             fi
         done

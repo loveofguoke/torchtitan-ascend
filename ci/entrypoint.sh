@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
-source_dir=/opt/torchtitan-ascend
 if [[ "$CI_DEVICE" == a2 ]]; then
     set +u
     # shellcheck source=/dev/null
@@ -20,10 +19,6 @@ if [[ "$CI_DEVICE" == a2 ]]; then
     export PYTHONPATH="/opt/npu-bootstrap:${PYTHONPATH:-}"
     # An explicit check also catches startup-hook failures, which Python can log and ignore.
     python -c 'import torch, torch_npu; from torchtitan_ascend import setup; setup(); assert torch.npu.is_available(), "No visible Ascend NPU"'
-    cp -a "$source_dir/tests/." /opt/torchtitan/tests/
-else
-    # Preserve upstream CPU semantics; do not copy the NPU conftest or patches.
-    cp -a "$source_dir/tests/unit_tests/cpu/." /opt/torchtitan/tests/unit_tests/cpu/
 fi
 cd /opt/torchtitan
 exec "$@"

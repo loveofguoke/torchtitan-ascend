@@ -191,6 +191,7 @@ class MoonEPRuntime:
             explicitly_destroy=True,
             use_udma=self.communication_options["use_udma"],
             planning_use_udma=self.communication_options["planning_use_udma"],
+            grad_reduce_use_udma=self.communication_options["grad_reduce_use_udma"],
             num_sms=self.communication_options["num_sms"],
             comm_stream_priority=self.communication_options["comm_stream_priority"],
         )

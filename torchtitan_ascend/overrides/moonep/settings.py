@@ -11,6 +11,8 @@ class MoonEPConfig:
 
     use_udma: bool = False
     planning_use_udma: bool = False
+    # UDMA transport keeps MTE gradient reduction unless explicitly opted in.
+    grad_reduce_use_udma: bool = False
     async_finish: bool = False
     qp_count: int = 2
     shmem_ip_port: str | None = None
@@ -30,6 +32,7 @@ class MoonEPConfig:
         for field_name in (
             "use_udma",
             "planning_use_udma",
+            "grad_reduce_use_udma",
             "async_finish",
             "recompute_dispatch",
             "validate_routing",
@@ -40,6 +43,8 @@ class MoonEPConfig:
         ):
             if type(getattr(self, field_name)) is not bool:
                 raise ValueError(f"MoonEP {field_name} must be a boolean")
+        if self.grad_reduce_use_udma and not self.use_udma:
+            raise ValueError("MoonEP grad_reduce_use_udma requires use_udma=True")
         if type(self.qp_count) is not int or self.qp_count < 0:
             raise ValueError("MoonEP qp_count must be a nonnegative integer")
         for field_name in ("num_sms", "tokens_per_rank"):

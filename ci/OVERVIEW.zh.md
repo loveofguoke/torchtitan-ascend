@@ -9,9 +9,9 @@
 | CPU | `torchtitan-ascend-ci:cpu` | `python:3.12-slim-bookworm` |
 | A2 NPU | `torchtitan-ascend-ci:a2` | `ascendai/cann:9.2.0-910b-ubuntu22.04-py3.12` |
 
-构建入口为 `ci/build.sh`，Dockerfile 为 `ci/Dockerfile`，默认架构为 `linux/arm64`。镜像将 TorchTitan 安装到 `/opt/torchtitan`，将本仓安装到 `/opt/torchtitan-ascend`；测试在 `/opt/torchtitan` 下执行。
+构建入口为 `ci/build.sh`，Dockerfile 为 `ci/Dockerfile`，默认架构为 `linux/arm64`。镜像将 TorchTitan 安装到 `/opt/torchtitan`，在 `/opt/torchtitan-ascend` 预装本仓及依赖，作为基础环境；测试在 `/opt/torchtitan` 下执行。
 
-默认从[官方仓库](https://gitcode.com/Ascend/torchtitan-ascend)的 `refactor/npu-override` 分支克隆源码。容器使用镜像内的源码和用例清单。
+构建时默认从[官方仓库](https://gitcode.com/Ascend/torchtitan-ascend)的 `refactor/npu-override` 分支准备基础环境。镜像可重复使用；每次测试使用流水线检出的待测代码、脚本和清单。
 
 | 组件 | 版本 |
 | ------ | ------ |
@@ -42,29 +42,47 @@ bash ci/build.sh cpu
 bash ci/build.sh a2
 ```
 
-默认使用 Docker 构建缓存。需要重新拉取分支代码时，追加 `--no-cache`，例如 `bash ci/build.sh cpu --no-cache`（A2 同理）。
+日常代码和用例修改无需重建镜像。依赖或编译环境变化时更新镜像；需要完整重建时可追加 `--no-cache`。
 
 ## 运行用例
 
-可在宿主机任意目录执行以下命令，启动容器并运行镜像内的对应清单：
+以下命令在容器内执行，使用 `/opt/torchtitan-ascend` 中的代码。流水线应运行本次检出目录中的 `ci/run-testlist.sh`。
 
 | 目标 | 用例清单 |
 | ------ | ------ |
 | CPU | `ci/testlists/cpu.txt` |
-| A2 | `ci/testlists/a2.txt` |
+| A2 单卡 | `ci/testlists/a2-1card.txt` |
+| A2 双卡 | `ci/testlists/a2-2card.txt` |
+| A2 8 卡 | `ci/testlists/a2-8card.txt` |
 
-镜像默认入口会自动配置环境，并将镜像内的本仓适配用例复制到 TorchTitan 的 `tests/` 下：CPU 复制 `tests/unit_tests/cpu/`，A2 复制 `tests/`。无需手动运行 `entrypoint.sh`。
+```bash
+# CPU
+bash /opt/torchtitan-ascend/ci/run-testlist.sh cpu
 
-### CPU
+# A2 单卡
+bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-1card
+
+# A2 双卡
+bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-2card
+
+# A2 8 卡
+bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-8card
+```
+
+脚本安装所在仓库的代码、复制适配用例，并执行对应清单。镜像默认入口自动初始化环境，无需再次手动执行入口脚本。
+
+### 本地验证 CPU
+
+在宿主机执行，使用镜像内 `/opt/torchtitan-ascend` 的代码：
 
 ```bash
 docker run --rm torchtitan-ascend-ci:cpu \
     bash /opt/torchtitan-ascend/ci/run-testlist.sh cpu
 ```
 
-### A2
+### 本地验证 A2
 
-完整 A2 清单需要 8 张可见 NPU。以下命令用于已安装昇腾驱动的 A2 主机，设备编号为 `0..7`，由 Bash 执行：
+以下以 8 卡清单为例。由 Bash 执行，要求宿主机已安装昇腾驱动，设备编号为 `0..7`：
 
 ```bash
 docker run --rm --network host --ipc host \
@@ -73,17 +91,7 @@ docker run --rm --network host --ipc host \
     -v /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro \
     -v /usr/local/Ascend/firmware:/usr/local/Ascend/firmware:ro \
     torchtitan-ascend-ci:a2 \
-    bash /opt/torchtitan-ascend/ci/run-testlist.sh a2
-```
-
-如果已经通过镜像默认入口进入容器，直接运行所属目标的脚本即可：
-
-```bash
-# CPU 容器内
-bash /opt/torchtitan-ascend/ci/run-testlist.sh cpu
-
-# A2 容器内
-bash /opt/torchtitan-ascend/ci/run-testlist.sh a2
+    bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-8card
 ```
 
 分布式用例自行启动 worker，整份清单无需再套一层 `torchrun`。
@@ -91,31 +99,31 @@ bash /opt/torchtitan-ascend/ci/run-testlist.sh a2
 ## 脚本参数与结果
 
 ```bash
-# 容器内仅收集 CPU 用例，每批 100 条
-BATCH=100 bash /opt/torchtitan-ascend/ci/run-testlist.sh cpu --collect-only
+# 容器的待测仓库根目录：安装、复制并收集 CPU 用例
+BATCH=100 bash ci/run-testlist.sh cpu --collect-only
 ```
 
 | 参数 | 含义 | 默认值 |
 | ------ | ------ | ------ |
-| `cpu` / `a2` | 执行对应清单 | `cpu` |
+| `cpu` / `a2-1card` / `a2-2card` / `a2-8card` | 执行对应清单；按组分配设备 | `cpu` |
 | `BATCH` | 每批条目数，必须为正整数 | `150` |
 | `WORKDIR` | TorchTitan 测试工作目录 | `/opt/torchtitan` |
 | pytest 参数 | 透传给每次 pytest，例如 `--collect-only` | 无 |
 
-脚本跳过空行和注释。批次失败时，该批全部条目会逐条重跑；仍失败的条目以 `FAILED_OR_ERROR` 汇总。
+清单脚本跳过空行和注释。批次失败时，该批全部条目会逐条重跑；仍失败的条目以 `FAILED_OR_ERROR` 汇总。
 
 退出码：`0` 表示最终没有报告失败，`1` 表示重跑后仍有失败，`2` 表示参数或清单无效。流水线需保留 pytest 日志；跳过的用例以 pytest 的 `skipped` 统计为准。
 
-## 新增用例
+## 新增上游用例
 
 ### 1. 在个人分支准备测试文件和清单
 
 | 目标 | 本仓测试文件位置 | 登记清单 |
 | ------ | ------ | ------ |
 | CPU | `tests/unit_tests/cpu/` 下的对应路径 | `ci/testlists/cpu.txt` |
-| A2 | `tests/` 下与上游相同的相对路径，例如 `tests/unit_tests/gpu/` | `ci/testlists/a2.txt` |
+| A2 | `tests/` 下与上游相同的相对路径，例如 `tests/unit_tests/gpu/` | `ci/testlists/a2-{1,2,8}card.txt` |
 
-在宿主机的本仓个人分支中修改。需要适配时，准备完整测试文件；直接复用固定版本 TorchTitan 已有且无需修改的测试时，只登记清单。CPU 用例应能在未安装 NPU 包的环境中运行。
+在宿主机的本仓个人分支中修改。需要适配时，准备完整测试文件；直接复用固定版本 TorchTitan 已有且无需修改的测试时，只登记清单。CPU 用例应能在未安装 NPU 包的环境中运行。登记前确认测试文件和 node ID 存在于固定版本的上游仓库；可提交必要的同路径适配，不新增本仓自定义用例。
 
 将对应 node ID 加入 TXT 的测试文件分组，新文件则增加分组注释。每行只写一个 node ID，例如：
 
@@ -125,29 +133,15 @@ tests/unit_tests/cpu/config/test_configurable.py::TestConfigurable::test_valid_c
 
 以上条目已存在，仅用于展示格式。登记前检查重复；清单中不写 `pytest`、命令参数、引号或行尾注释。新增依赖时，同时更新安装配置。
 
-### 2. 提交、推送并构建个人分支镜像
+新增 NPU 用例须按实际所需卡数（分布式用例以 `world_size` 为准），登记到 `a2-1card.txt`、`a2-2card.txt` 或 `a2-8card.txt`。每条用例只登记到一个分组，避免重复。
 
-在宿主机仓库根目录确认本次测试和清单修改，提交并推送到个人分支：
+### 2. 准备对应测试镜像
 
-```bash
-git add tests/ ci/testlists/
-# 如修改了安装或依赖配置，也先用 git add 暂存对应文件
-git commit -m "test: add CPU or A2 CI cases"
-git push origin HEAD
-```
-
-将下方 HTTPS 地址替换为该个人分支所在仓库的克隆地址，分支名替换为实际名称；构建机及容器需能访问该地址。所选分支需包含 CI 脚本和用例清单。
-
-```bash
-# CPU；验证 A2 时将最后的 cpu 改为 a2
-ASCEND_REPO='https://gitcode.com/YOUR_ACCOUNT/torchtitan-ascend.git' \
-ASCEND_BRANCH='your-test-branch' \
-    bash ci/build.sh cpu
-```
+使用对应的 CPU 或 A2 镜像；依赖变更时更新镜像。
 
 ### 3. 启动验证容器
 
-在宿主机任意目录按目标执行，镜像默认入口会自动初始化环境并复制测试文件。
+在宿主机执行。进入容器后，将 `/opt/torchtitan-ascend` 更新到已推送的待测提交，再执行后续验证。
 
 ```bash
 # CPU
@@ -164,33 +158,32 @@ docker run --rm -it --network host --ipc host \
     torchtitan-ascend-ci:a2 bash
 ```
 
-### 4. 收集并单独运行用例
+### 4. 收集并核对新增用例
 
-在容器内执行。以下用已有 CPU 用例演示，替换为自己负责的文件和 node ID：
+在容器内执行以下命令，A2 用例将 `cpu` 替换为对应的 A2 清单目标：
 
 ```bash
-cd /opt/torchtitan
-pytest tests/unit_tests/cpu/config/test_configurable.py --collect-only -q
-pytest 'tests/unit_tests/cpu/config/test_configurable.py::TestConfigurable::test_valid_config' -vv -rs
+cd /opt/torchtitan-ascend
+bash ci/run-testlist.sh cpu --collect-only
 ```
 
-用收集结果核对清单中的精确 node ID。选择单个参数化用例时，保留完整的 `[参数]` 后缀，并在 shell 命令中加引号。若用例被跳过，先确认设备、数据和依赖是否满足要求。
-
-本地修改或远端后续提交不会自动进入已有镜像。测试文件、清单或依赖需要调整时，回到步骤 1，重新提交、推送，使用 `--no-cache` 构建，再启动新容器验证。
+核对新增 node ID 能被收集。参数化用例需保留完整的 `[参数]` 后缀；清单中不加 shell 引号。只添加测试文件、未登记清单的用例不会自动运行。若用例被跳过，先确认设备、数据和依赖是否满足要求。
 
 ### 5. 验证完整清单并提交 PR
 
 在对应容器中运行所属目标的完整清单：
 
 ```bash
-# CPU 容器内
-bash /opt/torchtitan-ascend/ci/run-testlist.sh cpu
+# CPU 容器的待测仓库根目录
+bash ci/run-testlist.sh cpu
 
-# A2 容器内
-bash /opt/torchtitan-ascend/ci/run-testlist.sh a2
+# A2 容器的待测仓库根目录，按分配卡数执行对应清单
+bash ci/run-testlist.sh a2-1card
+bash ci/run-testlist.sh a2-2card
+bash ci/run-testlist.sh a2-8card
 ```
 
-单独用例及完整清单验证通过后，从个人分支向官方目标分支提交 PR；已有 PR 继续使用原分支，并补充本次验证结果。PR 中注明镜像对应的源码提交、执行命令和 pytest 的通过、失败、跳过结果；仅有 skip 不能作为验证通过的依据。
+完整清单验证通过后，提交测试文件、对应清单及必要的代码和依赖配置，从个人分支向官方目标分支提交 PR；已有 PR 继续使用原分支。PR 中注明待测提交、镜像名称、执行命令和 pytest 的通过、失败、跳过结果；仅有 skip 不能作为验证通过的依据。
 
 ## 许可证
 
