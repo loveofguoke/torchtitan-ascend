@@ -32,6 +32,7 @@
 | [attention_gym.py](attention_gym.py) | 对可选 CUDA 后端缺失复用 Attention Gym 的占位实现；实际构造缺失内核及基础依赖缺失时仍报错。 |
 | [causal_conv1d_spmd.py](causal_conv1d_spmd.py) | 延迟注册本地因果卷积的 SPMD 类型规则。 |
 | [flex_attention.py](flex_attention.py) | 对反向 compact-mask 的 captured tensor 读取限制有效索引；原生有效位置和最终 mask 保持不变。 |
+| [inductor_selection.py](inductor_selection.py) | 恢复 NPU 严格确定性下的原生候选策略，并复用 compile-only 校验选择可编译 tile。 |
 | [fused_swiglu.py](fused_swiglu.py) | 为上游 SwiGLU 前后向算子补充 PrivateUse1 派发。 |
 | [storage.py](storage.py) | 使用 NPUStorageImpl 构造外部 storage，包括 remat 的空数据占位对象；依赖安装阶段的 storage 补丁。 |
 | [inductor.py](inductor.py) | 复用 NPU scheduler 构造，限制 sub-parent epilogue，并适配 reduction 接口。 |
