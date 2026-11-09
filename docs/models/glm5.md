@@ -149,8 +149,15 @@ TP vocabulary-parallel cross entropy 同样沿用 TorchTitan 上游实现。
 融合算子的 A5 验证使用 Ascend 950、CANN 9.2.0、PyTorch `2.15.0+cpu`、
 torch_npu `1a25e6b`、TorchTitan `edde21fb` 环境完成组件 loss/梯度对照和
 BF16 debug 短程训练验证。验证覆盖 SelectiveAC、FullAC、局部编译，以及
-FSDP2、TP2、CP2 和 TP2×CP2 的已测组合。TorchTitan 0.4.0 的接口迁移已增加 CPU 回归，
-设备训练需在该固定版本下重新验证。
+FSDP2、TP2、CP2 和 TP2×CP2 的已测组合。
+
+TorchTitan 0.4.0 固定版本上的 A5 回归覆盖默认/全重计算、MTP、三种 indexer
+阶段，以及 DDP、FSDP/HSDP、TP/SP、CP、EP 的已测组合。融合 DSA 的配置、
+checkpoint 和算子回归共 47 项通过。PP 使用本仓公共 HCCL 通信适配，
+不另加 GLM 专用 Pipeline patch。
+
+GLM 不提供 ComplexRoPE、DTensor 初始化或 TP loss 的替换 patch；这些能力沿用
+固定上游和本仓公共适配。NPU 专用模型实现仅由 recipe 选择融合 DSA override。
 
 ## 验证
 
