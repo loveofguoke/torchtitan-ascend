@@ -5,8 +5,18 @@
 
 """Kimi K3 on Ascend using upstream recipes and Ascend KDA kernels."""
 
+from typing import Literal
+
 from torchtitan.config import apply_overrides, derive, OverrideConfig
 from torchtitan.config.parallelism import ParallelismConfig
+from torchtitan.config.transform import apply_transforms, ContextParallelTransform
+from torchtitan.models.common.attention.cp_kda import ContextParallelInnerKDA
+from torchtitan.models.common.attention.cp_mla import (
+    AllGatherKVMLAFlexAttention,
+    UlyssesMLAAttention,
+)
+from torchtitan.models.common.attention.kda import InnerKDA, KDA
+from torchtitan.models.common.attention.mla import MLAAttention
 from torchtitan.models.kimi_k3.flavors import _kimi_k3_config, _vision_encoder_config
 from torchtitan.trainer import Trainer
 from torchtitan_recipes.tests.models.kimi_k3 import (
@@ -56,6 +66,57 @@ def npu_fusion(config: Trainer.Config) -> None:
         override_target(triton_attn_res),
     ]
     enable_ascendc_rotary_mul()
+
+
+def apply_kimi_cp(
+    config: Trainer.Config,
+    *,
+    kda_cp_backend: Literal["ulysses"] = "ulysses",
+    mla_cp_backend: Literal["ulysses", "allgather_kv"] = "ulysses",
+) -> Trainer.Config:
+    """Return a transformed copy using Ulysses KDA and the selected MLA backend."""
+    from torchtitan_ascend.overrides.kda_ulysses import npu_cp_kda
+
+    if kda_cp_backend != "ulysses":
+        raise ValueError(f"Unknown Ascend KDA CP backend: {kda_cp_backend}")
+    if mla_cp_backend not in {"ulysses", "allgather_kv"}:
+        raise ValueError(f"Unknown MLA CP backend: {mla_cp_backend}")
+    parallel = config.parallelism
+    if parallel.context_parallel_degree < 2:
+        raise ValueError("Ascend KDA CP requires context_parallel_degree >= 2")
+    if parallel.context_parallel_load_balancer is not None:
+        raise ValueError(
+            "Ascend KDA CP requires contiguous partitions without a load balancer"
+        )
+    for layer in config.model.layers:
+        if isinstance(layer.attention, KDA.Config):
+            heads = layer.attention.n_heads
+            partitions = (
+                parallel.tensor_parallel_degree * parallel.context_parallel_degree
+            )
+            if heads % partitions:
+                raise ValueError(
+                    f"KDA heads ({heads}) must be divisible by TP * CP ({partitions}) for Ulysses"
+                )
+
+    mla_cp = (
+        UlyssesMLAAttention
+        if mla_cp_backend == "ulysses"
+        else AllGatherKVMLAFlexAttention
+    )
+    transformed = apply_transforms(
+        config,
+        [
+            ContextParallelTransform(
+                inner_attention_map={
+                    MLAAttention: mla_cp,
+                    InnerKDA: ContextParallelInnerKDA,
+                }
+            )
+        ],
+    )
+    transformed.override.imports.append(override_target(npu_cp_kda))
+    return transformed
 
 
 def kimi_k3_debugmodel_npu(

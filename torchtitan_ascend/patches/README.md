@@ -37,6 +37,8 @@
 | [storage.py](storage.py) | 使用 NPUStorageImpl 构造外部 storage，包括 remat 的空数据占位对象；依赖安装阶段的 storage 补丁。 |
 | [inductor.py](inductor.py) | 复用 NPU scheduler 构造，限制 sub-parent epilogue，并适配 reduction 接口。 |
 | [inductor_determinism.py](inductor_determinism.py) | 对确定性归约筛选配置并禁用计时选优缓存。 |
+| [inductor_static_launch.py](inductor_static_launch.py) | AutoBlockify NPU 内核使用 Triton 标准启动器，保留编译及确定性配置，避免静态启动器直接发射逻辑网格。 |
+| [rope.py](rope.py) | 将复数 RoPE 缓存拆分索引后重建，兼容不支持 complex64 索引的 NPU 路径。 |
 | [pipeline_parallel.py](pipeline_parallel.py) | 在 NPU 上复用上游分布式初始化，并在构造 PipelineStage 前关闭独立的 PP per-edge 通信组（`pipeline_per_edge_p2p`），使用共享 HCCL 通信组；其他设备和进程组已初始化路径沿用上游实现。1F1B、Interleaved1F1B 和 PP/FSDP 组合已在 NPU 上完成短程拉起验证，范围见下文。 |
 | [sort_layout.py](sort_layout.py) | 在 fallback 创建时约束 NPU 稳定排序输入连续，覆盖普通 lowering 及节点级强制 fallback，避免错误 BlockMask 反向索引。 |
 | [flex_attention_determinism.py](flex_attention_determinism.py) | 启用严格确定性时，Flex 从首次调用尝试动态形状编译，并使用固定的缓存版本标记隔离修复前的图。 |
