@@ -134,9 +134,11 @@ def _student_logits(
     """The per-head scores at a document-local selection: the pass that
     carries gradient (selection itself is discrete and carries none).
     """
-    selected_TKD = idx_k[
-        compressed_gather_indices(local_TK, cu_seqlens, compress_ratio)
-    ]
+    # Same lookup as idx_k[gather_TK] (invalid slots read row 0), but the
+    # backward avoids NPU's sort-based IndexPutWithSortV2 slow path.
+    selected_TKD = F.embedding(
+        compressed_gather_indices(local_TK, cu_seqlens, compress_ratio), idx_k
+    )
     logits_THK = torch.einsum("thd,tkd->thk", idx_q, selected_TKD)
     logits_THK = logits_THK.relu() * weights.unsqueeze(-1)
     return logits_THK.sum(dim=1).masked_fill(local_TK < 0, -torch.inf)
