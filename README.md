@@ -4,7 +4,7 @@
 
 **面向 Ascend NPU 的 TorchTitan 训练扩展**
 
-[快速开始](#快速开始) · [模型文档](#模型文档) · [文档](#文档) · [开发与贡献](#开发) · [问题反馈](https://gitcode.com/Ascend/torchtitan-ascend/issues)
+[快速开始](#快速开始) · [特性](#特性) · [模型文档](#模型文档) · [文档](#文档) · [开发与贡献](#开发) · [问题反馈](https://gitcode.com/Ascend/torchtitan-ascend/issues)
 
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -26,6 +26,57 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train MODULE=tor
 示例使用内置 tokenizer 和测试数据，随机初始化模型，预期运行 10 步并正常退出。
 
 3. 其他模型的数据准备、配方与运行条件见下方模型文档。
+
+## 特性
+
+<table>
+<tr>
+<td valign="top" width="50%">
+
+**分布式并行**
+- FSDP2、HSDP 和 DDP
+- Tensor Parallel 和 Sequence Parallel
+- FSDP/DDP 与 TP、CP 的组合
+- Context Parallel：all-gather KV 和 Ulysses
+- Expert Parallel 与 FSDP、TP 的组合
+
+**显存与性能优化**
+- FlexAttention 和 varlen attention
+- Activation Checkpointing：Full、Selective 和 Regional
+- Regional `torch.compile`（RoPE 区域）
+- BF16 optimizer states
+
+**训练能力**
+- Grain data pipeline：packing、weighted mixing 和 checkpointable state
+- Pretraining、SFT（多轮对话 loss mask）和 LoRA
+- DistMuon、EMA 和 DeepSeek V3 Multi-token Prediction
+- Warmup-Stable-Decay LR schedule 和 Validation
+
+</td>
+<td valign="top" width="50%">
+
+**Checkpoint**
+- Distributed Checkpoint 保存与同拓扑恢复
+- 跨拓扑 model-only 恢复和异步保存
+- Hugging Face safetensors 直接加载与保存
+- HF 与 DCP 双向转换
+
+**调试与观测**
+- Metrics：loss、memory、throughput、TFLOPs 和 MFU
+- TensorBoard 和 W&B
+- Ascend Profiler 和 Memory Snapshot
+- Structured Logging
+- Deterministic Mode 和 Loss Comparison
+- SDC Replay
+
+**扩展机制**
+- Python recipes
+- Component Overrides
+- GraphTrainer
+
+</td>
+</tr>
+</table>
 
 ## 模型文档
 
