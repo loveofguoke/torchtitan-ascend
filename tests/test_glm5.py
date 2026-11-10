@@ -92,6 +92,22 @@ def test_glm5_mtp_npu_config(recipe):
     ],
 )
 def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint, regions):
+    _train_glm5_single_card(
+        tmp_path, monkeypatch, recipe, stage, checkpoint, regions
+    )
+
+
+def _train_glm5_single_card(
+    tmp_path,
+    monkeypatch,
+    recipe,
+    stage,
+    checkpoint,
+    regions,
+    *,
+    initial_state=None,
+    capture_state=False,
+):
     if not hasattr(torch, "npu") or not torch.npu.is_available():
         pytest.skip("requires one visible Ascend NPU")
 
@@ -125,6 +141,12 @@ def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint, regi
     trainer = None
     try:
         trainer = config.build()
+        model = trainer.engine.model_parts[0]
+        if initial_state is not None:
+            model.load_state_dict(initial_state, strict=True)
+            loaded = model.state_dict()
+            for name, value in initial_state.items():
+                torch.testing.assert_close(loaded[name], value, rtol=0, atol=0)
         parameters = dict(trainer.engine.model_parts[0].named_parameters())
         indexer = next(
             parameter
@@ -162,8 +184,36 @@ def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint, regi
         assert torch.isfinite(backbone).all().item()
         assert (not torch.equal(before_indexer, indexer)) == (stage != "frozen")
         assert (not torch.equal(before_backbone, backbone)) == (stage != "warmup")
+        if capture_state:
+            return {
+                name: value.detach().clone()
+                for name, value in model.state_dict().items()
+            }
     finally:
         if trainer is not None:
             trainer.close()
         if dist.is_initialized():
             dist.destroy_process_group()
+
+
+def test_glm5_warmup_weights_continue_in_sparse_training(tmp_path, monkeypatch):
+    """Transfer all model weights between stages, rebuilding optimizer state."""
+    state = _train_glm5_single_card(
+        tmp_path / "warmup",
+        monkeypatch,
+        glm5_2_debugmodel_npu,
+        "warmup",
+        "selective",
+        None,
+        capture_state=True,
+    )
+    assert state
+    _train_glm5_single_card(
+        tmp_path / "sparse",
+        monkeypatch,
+        glm5_2_debugmodel_npu,
+        "sparse",
+        "selective",
+        None,
+        initial_state=state,
+    )
