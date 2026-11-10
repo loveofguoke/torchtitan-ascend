@@ -30,6 +30,7 @@
 | 修复 | 当前行为 |
 | --- | --- |
 | [attention_gym.py](attention_gym.py) | 对可选 CUDA 后端缺失复用 Attention Gym 的占位实现；实际构造缺失内核及基础依赖缺失时仍报错。 |
+| [gather_attn.py](gather_attn.py) | NPU 上将 packed gather attention 的 KV advanced indexing 改为展平表的 F.embedding 查表：前向避开 AI_CPU Index 慢算子，反向走 embedding_dense_backward 的 index_add 路径；数值与上游 reference 一致，非 NPU 设备沿用原实现。 |
 | [causal_conv1d_spmd.py](causal_conv1d_spmd.py) | 延迟注册本地因果卷积的 SPMD 类型规则。 |
 | [flex_attention.py](flex_attention.py) | 对反向 compact-mask 的 captured tensor 读取限制有效索引；原生有效位置和最终 mask 保持不变。 |
 | [inductor_selection.py](inductor_selection.py) | 恢复 NPU 严格确定性下的原生候选策略，并复用 compile-only 校验选择可编译 tile。 |
