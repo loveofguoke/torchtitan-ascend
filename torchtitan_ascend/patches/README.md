@@ -41,9 +41,8 @@
 | [inductor_static_launch.py](inductor_static_launch.py) | AutoBlockify NPU 内核使用 Triton 标准启动器，保留编译及确定性配置，避免静态启动器直接发射逻辑网格。 |
 | [rope.py](rope.py) | 将复数 RoPE 缓存拆分索引后重建，兼容不支持 complex64 索引的 NPU 路径。 |
 | [pipeline_parallel.py](pipeline_parallel.py) | 在 NPU 上复用上游分布式初始化，并在构造 PipelineStage 前关闭独立的 PP per-edge 通信组（`pipeline_per_edge_p2p`），使用共享 HCCL 通信组；其他设备和进程组已初始化路径沿用上游实现。1F1B、Interleaved1F1B 和 PP/FSDP 组合已在 NPU 上完成短程拉起验证，范围见下文。 |
-| [sort_layout.py](sort_layout.py) | 在 fallback 创建时约束 NPU 稳定排序输入连续，覆盖普通 lowering 及节点级强制 fallback，避免错误 BlockMask 反向索引。 |
+| [sort_layout.py](sort_layout.py) | 为当前固定的 torch_npu 版本约束稳定排序 fallback 的输入布局，避免错误读取 BlockMask 反向索引。 |
 | [flex_attention_determinism.py](flex_attention_determinism.py) | 启用严格确定性时，Flex 从首次调用尝试动态形状编译，并使用固定的缓存版本标记隔离修复前的图。 |
-| [checkpoint_rng.py](checkpoint_rng.py) | 初始化 Python、NumPy RNG，并在原生完整 DCP 检查点保存和恢复逐全局 rank 的 Python、NumPy、Torch CPU 和当前 NPU RNG；模型/HF 导出沿用上游策略。 |
 | [varlen_attention](varlen_attention/__init__.py) | 将公共 varlen API 连接到 NPU 前后向，按 Q/K 配对过滤空文档槽，保留文档边界及参数校验。 |
 
 ### 因果卷积 SPMD 类型规则
@@ -64,8 +63,8 @@ Triton experimental 的 reduction 和 persistent reduction 在 metadata 请求�
 
 ### NPU 稳定排序布局
 
-Flex Attention 使用 BlockMask 记录哪些 Q 块和 KV 块需要计算。反向过程会产生 KV 块到 Q 块的索引，但是编译器记录的 stride 与 NPU 实际返回的 stride 不一致，导致后续编译算子会错误读取。
-为解决这一问题，在 fallback 创建时约束 NPU 稳定排序使用连续输入，使其与实际输出的布局一致，覆盖普通 lowering 及编译节点的强制 fallback。
+Flex Attention 反向使用 BlockMask 中 KV 块到 Q 块的索引。当前固定的 torch_npu 版本延迟注册 NPU Meta 实现。首次编译若先缓存了通用稳定排序的输出 stride，fallback 可能复用该布局，而 NPU 排序实际返回连续输出。
+兼容补丁在 fallback 创建时约束稳定排序使用连续输入，覆盖普通 lowering 和编译节点的强制 fallback。升级到在 Meta 注册后清理 FakeTensor 缓存并隔离旧编译图的 torch_npu 版本后，可以一并移除该补丁及其图缓存版本标记。
 
 ### Flex Attention 确定性
 
@@ -74,14 +73,6 @@ Flex Attention 使用 BlockMask 记录哪些 Q 块和 KV 块需要计算。反�
 启用 `debug.deterministic` 时，`flex_attention_determinism.py` 设置 `dynamic=True`，让连续训练与续训都从首次调用起尝试动态形状编译，避免依赖此前见过的输入形状。缓存条件匹配时可跨进程复用已编译产物。
 
 `sort_layout.py` 的运行时修复不会自动改变图缓存键。Flex 补丁向 `torch.compiler.config.cache_key_tag` 追加固定版本标记，隔离修复前的错误图并保留调用方已有标记。
-
-### 完整检查点的 RNG 状态
-
-全局 rank 的 Python、NumPy、Torch CPU 和 NPU RNG（随机流）会影响模型训练的确定性。而原生 TorchTitan 在断点续训时不会记录/加载 Python 和 NumPy RNG，导致断点续训确定性不一致。
-因此，`checkpoint_rng.py` 在训练引擎构造完成后、模型和数据加载器创建前，为显式指定 seed 的 CPU/NPU 配置初始化 Python、NumPy 全局 RNG，采用 Torch 最终 seed 保留 mesh 轴偏移，NumPy 使用其低 32 位。未指定 seed 时保持原生行为。
-`checkpoint_rng.py` 还会在 worker 已绑定设备后，为完整 DCP 注册每个全局 rank 的 RNG，保存为 `rng.rank_<global_rank>`。
-
-限制：严格续训要求相同 rank 拓扑；缺失的随机流无法恢复，不构成严格零误差续训。旧检查点若没有 `rng`，可显式设置 `checkpointer.exclude_from_loading=["rng"]` 兼容加载。
 
 ### 流水线并行验证
 
