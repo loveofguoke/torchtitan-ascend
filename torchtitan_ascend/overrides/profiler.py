@@ -50,6 +50,13 @@ class NPUProfiler(Profiler):
                     "aic_metrics_type must be PipeUtilization or ArithmeticUtilization, "
                     f"got {self.aic_metrics_type!r}"
                 )
+            if not self.with_cpu and self.with_stack:
+                raise ValueError("with_stack=True requires with_cpu=True")
+            if not self.with_cpu and self.record_shapes and self.level != "level0":
+                raise ValueError(
+                    "record_shapes=True requires with_cpu=True at level1/level2; "
+                    "NPU-only level0 can request device-side AI Core shapes"
+                )
             if (
                 self.ranks is not None
                 and self.ranks != [-1]

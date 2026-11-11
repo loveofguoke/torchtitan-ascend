@@ -93,6 +93,7 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train MODULE=tor
 |---|---|
 | 环境准备与最小运行 | [安装指南](INSTALL.md) |
 | 模型用法与前置条件 | [模型文档](#模型文档) |
+| 性能采集与内存快照 | [性能采集](docs/profiling.md) |
 | 维护、评审与验收规则 | [维护策略](docs/maintenance.md) |
 | 贡献步骤与开发约束 | [贡献指南](CONTRIBUTING.md)、[开发规范](AGENTS.md) |
 

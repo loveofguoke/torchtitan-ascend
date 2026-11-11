@@ -1,5 +1,8 @@
 # CPU test list
 
+# Ascend profiler: public configuration and lifecycle with a mocked NPU backend.
+tests/unit_tests/cpu/test_profiler.py
+
 # --- tests/unit_tests/cpu/components/checkpointer/test_checkpoint.py (72 cases) ---
 tests/unit_tests/cpu/components/checkpointer/test_checkpoint.py::TestBaseCheckpointManagerTracing::test_public_save_and_load_disable_grad_before_backend_calls
 tests/unit_tests/cpu/components/checkpointer/test_checkpoint.py::TestBaseCheckpointManagerTracing::test_save_and_load_trace_backend_hooks
