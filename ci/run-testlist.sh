@@ -6,6 +6,7 @@ set -euo pipefail
 usage() {
     echo "Usage: $0 [cpu|a2-1card|a2-2card|a2-8card] [extra pytest arguments...]"
     echo 'Environment: WORKDIR (default /opt/torchtitan), BATCH (default 150)'
+    echo '             TESTLIST (default ci/testlists/<target>.txt; relative to the invocation directory)'
 }
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
     usage
@@ -27,7 +28,7 @@ if [[ ! "$BATCH" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIST="$HERE/testlists/$TARGET.txt"
+LIST="${TESTLIST:-$HERE/testlists/$TARGET.txt}"
 if [[ ! -f "$LIST" ]]; then
     echo "ERROR: test list not found: $LIST" >&2
     exit 2

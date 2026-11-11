@@ -34,7 +34,9 @@ known_first_party = ["tests"]
 
 [tool.pyrefly]
 python-version = "3.12"
-project-includes = ["torchtitan_ascend/**/*.py", "tests/**/*.py", "pre-commit/**/*.py"]
+project-includes = ["torchtitan_ascend/**/*.py", "pre-commit/**/*.py"]
+# Match TorchTitan v0.4.0: tests are excluded from Pyrefly.
+project-excludes = ["**/tests/**"]
 # These external runtime packages are unavailable in the isolated lint env.
 # Internal Ascend modules remain fully checked.
 replace-imports-with-any = ["torch", "torch.*", "torch_npu", "torch_npu.*", "torchtitan", "torchtitan.*", "torchtitan_recipes.*", "pytest", "renderers", "spmd_types", "spmd_types.*", "fla_npu.*", "numpy", "numpy.*", "tensorboard.*", "attn_gym", "attn_gym.*", "torch_remat", "torch_remat.*", "triton", "triton.*", "cann_ops_nn", "cann_ops_nn.*", "moonep", "moonep.*", "hyper_parallel", "hyper_parallel.*"]
