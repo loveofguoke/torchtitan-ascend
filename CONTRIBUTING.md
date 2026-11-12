@@ -19,7 +19,7 @@ RFC 提案在社区创建标题以 `[RFC]` 开头的 issue，说明背景、方�
 
 ### 贡献归属与原则
 
-本仓维护 Ascend 适配与优化，通用能力优先贡献所属上游；编码与适配约束见 [AGENTS.md](AGENTS.md)，维护边界见[维护策略](docs/maintenance.md#1-项目边界)。
+本仓维护 Ascend 适配与优化，通用能力优先贡献所属上游；代码组织与设计原则见 [ARCHITECTURE.md](ARCHITECTURE.md)，编码与适配约束见 [AGENTS.md](AGENTS.md)，维护边界见[维护策略](docs/maintenance.md#1-项目边界)。
 
 ## 2. 开发改动
 
