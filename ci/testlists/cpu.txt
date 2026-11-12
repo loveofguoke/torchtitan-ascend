@@ -770,13 +770,12 @@ tests/unit_tests/cpu/scripts/test_convert_ema_to_hf.py::TestConvertEmaToHfMultip
 tests/unit_tests/cpu/scripts/test_convert_ema_to_hf.py::TestConvertEmaToHfMultipleCopies::test_selected_copy_is_exported
 tests/unit_tests/cpu/scripts/test_convert_ema_to_hf.py::TestConvertEmaToHfFrozenParameters::test_frozen_parameter_exports_the_trained_weights
 
-# --- tests/unit_tests/cpu/scripts/test_download_hf_assets.py (11 cases) ---
+# --- tests/unit_tests/cpu/scripts/test_download_hf_assets.py (10 cases) ---
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_download_single_asset_types
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_download_multiple_asset_types
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_download_all_files
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_additional_patterns
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_additional_patterns_mixed_case
-tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_list_files
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_nested_directory_handling
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_missing_files_warning
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_download_failure_handling

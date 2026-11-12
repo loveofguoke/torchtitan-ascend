@@ -110,9 +110,9 @@ BATCH=100 bash ci/run-testlist.sh cpu --collect-only
 | `WORKDIR` | TorchTitan test working directory | `/opt/torchtitan` |
 | pytest arguments | Passed to each pytest invocation, such as `--collect-only` | None |
 
-The list runner skips blank lines and comments. If a batch fails, every entry in that batch runs again individually. Entries that still fail are summarized as `FAILED_OR_ERROR`.
+The list runner skips blank lines and comments. Each batch runs once, and the runner continues with later batches after a failure. Pytest prints details as each batch runs. The final summary lists failed batches and pytest's failure and error messages. If pytest cannot find a listed test, the summary marks that batch as unexecuted.
 
-Exit codes: `0` means no final failures were reported, `1` means failures remain after retries, and `2` means invalid arguments or test lists. Preserve the pytest logs in CI and use pytest's `skipped` summary to identify skipped tests.
+The runner returns `0` when all batches finish without errors, `1` when any batch fails, and `2` for invalid runner arguments or a missing or empty list. Use pytest's `skipped` summary to identify skipped tests.
 
 ## Add Upstream Tests
 

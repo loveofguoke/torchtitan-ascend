@@ -74,32 +74,45 @@ sys.exit(pytest.main(sys.argv[1:]))
 ' "$@"
 }
 
-failed_files="$PARTS_DIR/failures.log"
-: > "$failed_files"
+failure_summary="$PARTS_DIR/failures.log"
+batch_log="$PARTS_DIR/batch.log"
+num_batches=0
+: > "$failure_summary"
 split -l "$BATCH" "$CASES" "$PARTS_DIR/part."
 
 for part in "$PARTS_DIR"/part.*; do
+    num_batches=$((num_batches + 1))
     batch=()
     while IFS= read -r one; do
         batch+=("$one")
     done < "$part"
-    echo "[run-testlist] running ${#batch[@]} entries"
-    if run_pytest "$@" -vv -rs "${batch[@]}"; then
+    echo "[run-testlist] batch $num_batches: running ${#batch[@]} entries"
+    if run_pytest "$@" -vv -rfEs --color=no "${batch[@]}" 2>&1 | tee "$batch_log"; then
         :
     else
-        echo '[run-testlist] batch had failures; re-running case-by-case to isolate them'
-        for one in "${batch[@]}"; do
-            if ! run_pytest "$@" -q "$one"; then
-                echo "FAILED_OR_ERROR $one" | tee -a "$failed_files"
-            fi
-        done
+        batch_status=$?
+        printf '\nBatch %s (%s entries), exit code %s\n' \
+            "$num_batches" "${#batch[@]}" "$batch_status" >> "$failure_summary"
+        # Pytest can print a usage error on the same line as its collection status.
+        awk -v status="$batch_status" '
+            { sub(/^collecting \.\.\. /, "") }
+            /^ERROR: / { print }
+            /^ERROR: (not found:|file or directory not found:)/ { missing_entry = 1 }
+            /^=+ short test summary info =+$/ { in_summary = 1; next }
+            /^=+/ { in_summary = 0 }
+            in_summary && /^(FAILED|ERROR) / { print }
+            END {
+                if (status == 4 && missing_entry)
+                    print "Batch not executed because a listed test could not be found."
+            }
+        ' "$batch_log" >> "$failure_summary"
     fi
 done
 
-if [[ -s "$failed_files" ]]; then
+if [[ -s "$failure_summary" ]]; then
     echo
-    echo '[run-testlist] ===== entries with pytest failures or errors ====='
-    cat "$failed_files"
+    echo '[run-testlist] ===== failed batches (full pytest output above) ====='
+    cat "$failure_summary"
     exit 1
 fi
 

@@ -110,9 +110,9 @@ BATCH=100 bash ci/run-testlist.sh cpu --collect-only
 | `WORKDIR` | TorchTitan 测试工作目录 | `/opt/torchtitan` |
 | pytest 参数 | 透传给每次 pytest，例如 `--collect-only` | 无 |
 
-清单脚本跳过空行和注释。批次失败时，该批全部条目会逐条重跑；仍失败的条目以 `FAILED_OR_ERROR` 汇总。
+清单脚本跳过空行和注释。每批只执行一次，失败后继续执行后续批次。pytest 输出各批的详细日志，脚本在末尾汇总失败批次和 pytest 的失败或错误信息。如果 pytest 找不到清单中的某个用例，汇总会标明该批未执行。
 
-退出码：`0` 表示最终没有报告失败，`1` 表示重跑后仍有失败，`2` 表示参数或清单无效。流水线需保留 pytest 日志；跳过的用例以 pytest 的 `skipped` 统计为准。
+所有批次无错误时脚本返回 `0`，任一批失败时返回 `1`，脚本参数无效或清单缺失、为空时返回 `2`。跳过的用例以 pytest 的 `skipped` 统计为准。
 
 ## 新增上游用例
 
