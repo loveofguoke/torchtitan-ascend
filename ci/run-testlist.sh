@@ -28,6 +28,12 @@ if [[ ! "$BATCH" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$TARGET" == a2* ]]; then
+    # docker exec does not inherit environment changes made by the entrypoint.
+    # shellcheck source=ci/npu-env.sh
+    source "$HERE/npu-env.sh"
+fi
+
 LIST="${TESTLIST:-$HERE/testlists/$TARGET.txt}"
 if [[ ! -f "$LIST" ]]; then
     echo "ERROR: test list not found: $LIST" >&2

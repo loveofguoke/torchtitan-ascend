@@ -69,7 +69,7 @@ bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-2card
 bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-8card
 ```
 
-脚本安装所在仓库的代码、复制适配用例，并执行对应清单。镜像默认入口自动初始化环境，无需再次手动执行入口脚本。
+脚本安装所在仓库的代码、复制适配用例，并执行对应清单。A2 用例脚本自动加载 CANN 等运行环境，通过 `docker exec` 执行时也无需手动执行入口脚本。
 
 ### 本地验证 CPU
 

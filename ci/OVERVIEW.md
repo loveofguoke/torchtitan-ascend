@@ -69,7 +69,7 @@ bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-2card
 bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-8card
 ```
 
-The script installs code from its repository, copies adapted tests, and runs the corresponding list. The image's default entrypoint initializes the environment automatically; do not invoke it again manually.
+The script installs code from its repository, copies adapted tests, and runs the corresponding list. The A2 test runner loads CANN and the other runtime environments automatically, including when invoked through `docker exec`; no manual entrypoint invocation is required.
 
 ### Local CPU Validation
 
