@@ -1,0 +1,242 @@
+name: PR-pipeline_torchtitan-ascend
+
+concurrency:
+  enable: true
+  max: 3
+  exceed-action: QUEUE
+  preemption:
+    enable: true
+    events: [mr_id]
+
+on:
+  pr_comment:
+    types: [created]
+    keyword: '^compile$'
+  pull_request_comment:
+    types: [created]
+    branches: ['**']
+    comments: ['^compile$']
+
+env:
+  pr_id: ${{ atomgit.event.pull_request.number || atomgit.event.issue.number }}
+  org_name: "Ascend"
+
+permissions:
+  project: read
+  repository: read
+  id-token: write
+  pr: write
+  note: write
+  action: read
+
+stages:
+  stage1:
+    name: only_doc
+    select: selected_by_default
+    jobs:
+      Detect_file_changes:
+        name: Detect_file_changes
+        runs-on: [ self-hosted, x86, cpu=2 ]
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/atlas-ci/common:latest
+        outputs:
+          need_build_ut: ${{ steps.set-skip.outputs.need_build_ut }}
+        steps:
+          - name: Checkout PR merge
+            uses: checkout
+            with:
+              ref: refs/merge-requests/${{ env.pr_id }}/merge
+              fetch-depth: 0
+              allow-unsafe-pr-checkout: true
+          - name: Only_doc_commit
+            id: filter
+            uses: paths-changes-filter
+            with:
+              event-name: 'pull_request'
+              base: ${{ atomgit.event.pull_request.base.ref }}
+              repo: ${{ atomgit.repository }}
+              number: ${{ env.pr_id }}
+              token: ${{ atomgit.ATOMGIT_TOKEN }}
+              list-files: json
+              predicate-quantifier: every
+              filters: |
+                changed:
+                  - '**'
+                non-doc:
+                  - '!**/*.md'
+                  - '!**/*.rst'
+                  - '!**/*.log'
+                  - '!**/*.png'
+                  - '!**/*.jpg'
+                  - '!**/*.doc'
+                  - '!**/*.eddx'
+                  - '!**/*.svg'
+          - name: set build skip flag
+            id: set-skip
+            run: |
+              echo "changed: ${{ steps.filter.outputs.changed_files }}"
+              echo "non-doc: ${{ steps.filter.outputs.non-doc }}"
+              if [ "${{ steps.filter.outputs.non-doc }}" = "true" ]; then
+                echo "need_build_ut=yes" >> "$ATOMGIT_OUTPUT"
+              elif [ "${{ steps.filter.outputs.non-doc }}" = "false" ]; then
+                echo "need_build_ut=no" >> "$ATOMGIT_OUTPUT"
+              else
+                echo "Cannot determine whether the PR is docs-only" >&2
+                exit 1
+              fi
+
+      associate_pr_comment:
+        name: associate_pr_comment
+        select: selected_by_default
+        runs-on: [ self-hosted, x86, cpu=2 ]
+        steps:
+          - name: associate-pr-comment
+            uses: associate-pr-comment
+          - name: pre_pipeline
+            id: pre_pipeline
+            uses: cann/.gitcode/actions/pre-pipeline@689551d6b29a77d8c2a005b8f1b3883db24820ef
+            with:
+              owner: ${{ env.org_name }}
+              repo: ${{ atomgit.event.repository.name }}
+              pr_number: ${{ env.pr_id }}
+              token: ${{ secrets.GIT_TOKEN }}
+              apply_label: 'true'
+              run_url: https://gitcode.com/${{ env.org_name }}/${{ atomgit.event.repository.name }}/actions/runs/${{ atomgit.workflow_run_id }}
+
+  stage2:
+    name: CodeCheck
+    select: selected_by_default
+    jobs:
+      CodeCheck_pre_commit:
+        name: CodeCheck_pre_commit
+        if: ${{ jobs.Detect_file_changes.outputs.need_build_ut == 'yes' }}
+        runs-on: [ self-hosted, x86, cpu=16 ]
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/atlas-ci/common:latest
+        steps:
+          - name: checkout
+            uses: checkout
+            with:
+              ref: refs/merge-requests/${{ env.pr_id }}/merge
+              allow-unsafe-pr-checkout: true
+          - name: setup-python311
+            run: |
+              PYTHON_BIN=$(which python3.11 || which python3)
+              PYTHON_BIN_DIR=$(dirname "$PYTHON_BIN")
+              ln -sf "$PYTHON_BIN" "$PYTHON_BIN_DIR/python"
+              echo "$PYTHON_BIN_DIR" >> "$ATOMGIT_PATH"
+              python --version
+          - name: install gitleaks
+            run: |
+              cd ${ATOMGIT_WORKSPACE}
+              wget --no-host-directories -c --no-check-certificate https://pytorch-package.obs.cn-north-4.myhuaweicloud.com/pta-codecheck/gitleaks
+              chmod +x gitleaks
+              cd -
+          - name: Run pre-commit
+            uses: openlibing/pre-commit-action@v1.0.0
+            env:
+              SKIP: lychee-link-checker
+
+      sca-pr:
+        if: ${{ jobs.Detect_file_changes.outputs.need_build_ut == 'yes' }}
+        runs-on: [ self-hosted, x86, cpu=2 ]
+        steps:
+          - name: checkout
+            uses: checkout
+          - name: Run SCA PR scan
+            uses: openlibing/sca-action/sca-pr-action@v1.0.0
+            with:
+              project-name: 'AscendForPyTorch'
+
+      malicious-scan:
+        if: ${{ jobs.Detect_file_changes.outputs.need_build_ut == 'yes' }}
+        runs-on: [ self-hosted, x86, cpu=2 ]
+        steps:
+          - name: checkout
+            uses: checkout
+          - name: Run malicious code scan
+            uses: openlibing/malicious-code-scan-action/malicious-code-pr-scan-action@v1.0.0
+            with:
+              repository-name: ${{ atomgit.repository }}
+              pr-id: "${{ env.pr_id }}"
+              project-name: 'AscendForPyTorch'
+
+  stage3:
+    name: UT-ST
+    select: selected_by_default
+    jobs:
+      UT_CPU:
+        if: ${{ jobs.Detect_file_changes.outputs.need_build_ut == 'yes' }}
+        runs-on: [self-hosted, default, x86, cpu=16]
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/atlas-ci/torchtitan-ascend-pr:cpu-latest
+        steps:
+          - name: Checkout PR merge
+            uses: checkout
+            with:
+              ref: refs/merge-requests/${{ env.pr_id }}/merge
+              path: pr-merge
+              allow-unsafe-pr-checkout: true
+          - name: Run unit tests
+            run: bash "$ATOMGIT_WORKSPACE/pr-merge/ci/run-testlist.sh" cpu
+
+      UT_A2_1:
+        if: ${{ jobs.Detect_file_changes.outputs.need_build_ut == 'yes' }}
+        runs-on: [self-hosted, default, npu=1]
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/atlas-ci/torchtitan-ascend-pr:a2-latest
+        steps:
+          - name: Checkout PR merge
+            uses: checkout
+            with:
+              ref: refs/merge-requests/${{ env.pr_id }}/merge
+              path: pr-merge
+              allow-unsafe-pr-checkout: true
+          - name: Run unit tests
+            run: bash "$ATOMGIT_WORKSPACE/pr-merge/ci/run-testlist.sh" a2-1card
+
+      UT_A2_2:
+        if: ${{ jobs.Detect_file_changes.outputs.need_build_ut == 'yes' }}
+        runs-on: [self-hosted, default, npu=2]
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/atlas-ci/torchtitan-ascend-pr:a2-latest
+        steps:
+          - name: Checkout PR merge
+            uses: checkout
+            with:
+              ref: refs/merge-requests/${{ env.pr_id }}/merge
+              path: pr-merge
+              allow-unsafe-pr-checkout: true
+          - name: Run unit tests
+            run: bash "$ATOMGIT_WORKSPACE/pr-merge/ci/run-testlist.sh" a2-2card
+
+      UT_A2_8:
+        if: ${{ jobs.Detect_file_changes.outputs.need_build_ut == 'yes' }}
+        runs-on: [self-hosted, npu=8]
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/atlas-ci/torchtitan-ascend-pr:a2-latest
+        steps:
+          - name: Checkout PR merge
+            uses: checkout
+            with:
+              ref: refs/merge-requests/${{ env.pr_id }}/merge
+              path: pr-merge
+              allow-unsafe-pr-checkout: true
+          - name: Run unit tests
+            run: bash "$ATOMGIT_WORKSPACE/pr-merge/ci/run-testlist.sh" a2-8card
+
+
+post:
+  jobs:
+    query_pipeline:
+      steps:
+        - name: query_pipeline
+          id: query_pipeline
+          uses: cann/.gitcode/actions/query-pipeline@689551d6b29a77d8c2a005b8f1b3883db24820ef
+          with:
+            owner: ${{ env.org_name }}
+            repo: ${{ atomgit.event.repository.name }}
+            run_id: ${{ atomgit.workflow_run_id }}
+            token: ${{ secrets.GIT_TOKEN }}
+            pr_number: ${{ env.pr_id }}
+            apply_label: 'true'
