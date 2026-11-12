@@ -16,3 +16,6 @@ tests/unit_tests/gpu/models/kimi_k2_7/test_qk_clip.py::QKClipDistributedTest::te
 
 # --- tests/unit_tests/gpu/models/qwen3_5/test_offset_rmsnorm.py (1) ---
 tests/unit_tests/gpu/models/qwen3_5/test_offset_rmsnorm.py::TestOffsetRMSNormTensorParallel::test_compiled_qk_norm
+
+# --- tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py (1) ---
+tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_fsdp_microbatches_add_into_running_grad

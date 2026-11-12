@@ -44,3 +44,42 @@ tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py::TestGatedDeltaNetC
 # --- tests/unit_tests/gpu/models/qwen3_5/test_sigmoid_gate.py (2) ---
 tests/unit_tests/gpu/models/qwen3_5/test_sigmoid_gate.py::TestSigmoidGateLocalCompile::test_forward_and_backward_are_batch_invariant
 tests/unit_tests/gpu/models/qwen3_5/test_sigmoid_gate.py::TestSigmoidGateLocalCompile::test_forward_and_backward_match_reference
+
+# --- tests/unit_tests/gpu/components/optim/test_ema.py (11) ---
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_construction_does_not_crash_on_dtensor_pin_memory
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_step_updates_offloaded_values_correctly
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_scratch_buffer_reused_across_steps
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_scratch_is_bounded_well_below_parameter_memory
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_state_dict_leaves_the_container_pinned
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_state_dict_failure_leaves_the_container_usable
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_offload_and_plain_load_agree_on_a_partial_state_dict
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_offload_state_dict_key_layout_matches_super
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_save_load_round_trip_stays_offloaded
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_multi_copy_round_trip_through_offload_paths
+tests/unit_tests/gpu/components/optim/test_ema.py::TestEMACpuOffload::test_buffer_offload_round_trip_under_fsdp2
+
+# --- tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py (18) ---
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_hi_mid_lo_linear_compiles[input_dtype1-weight_dtype1-hi_mid]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_hi_mid_lo_linear_compiles[input_dtype1-weight_dtype1-hi_mid_lo]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_hi_mid_lo_linear_compiles[input_dtype2-weight_dtype2-hi_mid]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_hi_mid_lo_linear_compiles[input_dtype2-weight_dtype2-hi_mid_lo]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_hi_mid_lo_linear_compiles[input_dtype3-weight_dtype3-hi_mid]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_hi_mid_lo_linear_compiles[input_dtype3-weight_dtype3-hi_mid_lo]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_forward_matches_fp64_reference
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_compiled_split_matches_eager_split[2-0]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_compiled_split_matches_eager_split[2-1]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_compiled_split_matches_eager_split[3-0]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_compiled_split_matches_eager_split[3-1]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_weight_grad_stays_fp32_when_grad_dtype_is_fp32[64-1024-2-True]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_weight_grad_stays_fp32_when_grad_dtype_is_fp32[64-1024-3-True]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_weight_grad_stays_fp32_when_grad_dtype_is_fp32[512-16-2-True]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_weight_grad_stays_fp32_when_grad_dtype_is_fp32[512-16-3-True]
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_backward_handles_zero_tokens
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_inplace_wgrad_accum_raises_under_compile
+tests/unit_tests/gpu/models/common/test_hi_mid_lo_linear.py::test_backward_runs_under_autocast_with_fp32_params
+
+# --- tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py (4) ---
+tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_adds_bf16_wgrad_into_fp32_running_grad[1]
+tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_adds_bf16_wgrad_into_fp32_running_grad[2]
+tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_first_wgrad_is_produced_in_grad_dtype[1]
+tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_first_wgrad_is_produced_in_grad_dtype[2]
