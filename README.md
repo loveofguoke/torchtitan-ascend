@@ -83,6 +83,7 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train MODULE=tor
 - [Qwen3](docs/models/qwen3.md)
 - [Qwen3.5](docs/models/qwen3_5.md)
 - [Kimi K3](docs/models/kimi_k3.md)
+- [GLM-5](docs/models/glm5.md)
 - [DeepSeek V4.1](docs/models/deepseek_v4_1.md)
 
 模型文档中的局部验证不自动构成正式支持；具体组合与证据以相关模型文档及公开评审记录为准，支持状态遵循[维护策略](docs/maintenance.md#2-基线与支持状态)。

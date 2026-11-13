@@ -1,0 +1,219 @@
+"""Run from the pinned TorchTitan checkout with one visible NPU."""
+
+import math
+import socket
+from functools import partial
+
+import pytest
+import torch
+import torch.distributed as dist
+
+from torchtitan.distributed.activation_remat import DefaultActivationRematConfig
+from torchtitan.models.base.module import Module
+from torchtitan_ascend import setup
+from torchtitan_ascend.recipes.glm5 import (
+    glm5_2_debugmodel_mtp_npu,
+    glm5_2_debugmodel_npu,
+    glm5_3_debugmodel_mtp_npu,
+    glm5_3_debugmodel_npu,
+)
+
+
+@pytest.mark.parametrize("regions", [[], ["loss", "fused_binary_activation"]])
+def test_glm5_recipe_preserves_model_compile_regions(monkeypatch, regions):
+    from torchtitan_ascend.recipes import glm5
+
+    original = glm5.build_model_config
+
+    def build_model_config(*args, **kwargs):
+        config = original(*args, **kwargs)
+        config.local_compile_regions = regions.copy()
+        return config
+
+    monkeypatch.setattr(glm5, "build_model_config", build_model_config)
+
+    assert glm5.glm5_2_debugmodel_npu().model.local_compile_regions == regions
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [glm5_2_debugmodel_npu, glm5_3_debugmodel_npu],
+)
+def test_glm5_debugmodel_npu_config(recipe):
+    config = recipe()
+
+    assert config.model.local_compile_regions == []
+    assert isinstance(config.activation_remat, DefaultActivationRematConfig)
+    assert config.training.num_tokens_per_microbatch_per_dp_rank == 256
+    assert config.training.max_context_length == 128
+    assert config.training.steps == 10
+    assert any(
+        entry[0] == "torchtitan_ascend.overrides.glm5_dsa.npu_glm5_dsa"
+        for entry in config.override.imports
+    )
+    assert any(
+        isinstance(initializer, partial)
+        and initializer.func is torch.nn.init.trunc_normal_
+        for _, module_config, _, _ in config.model.traverse(Module.Config, recurse=True)
+        for initializer in (module_config.param_init or {}).values()
+    )
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [glm5_2_debugmodel_mtp_npu, glm5_3_debugmodel_mtp_npu],
+)
+def test_glm5_mtp_npu_config(recipe):
+    config = recipe(mtp_scale=0.125)
+
+    assert len(config.model.mtp_layers) == 1
+    assert config.loss.loss_fn.mtp_scale == 0.125
+    assert config.model.local_compile_regions == []
+
+
+@pytest.mark.parametrize(
+    "recipe,stage,checkpoint,regions",
+    [
+        (glm5_2_debugmodel_npu, "sparse", None, []),
+        (glm5_2_debugmodel_npu, "sparse", "selective", None),
+        (glm5_2_debugmodel_npu, "sparse", "full", []),
+        (glm5_2_debugmodel_npu, "sparse", "selective", ["loss"]),
+        (glm5_2_debugmodel_npu, "sparse", "selective", ["fused_binary_activation"]),
+        (
+            glm5_2_debugmodel_npu,
+            "sparse",
+            "selective",
+            ["loss", "fused_binary_activation"],
+        ),
+        (glm5_2_debugmodel_npu, "warmup", "selective", None),
+        (glm5_2_debugmodel_npu, "frozen", "selective", None),
+        (glm5_3_debugmodel_mtp_npu, "sparse", "selective", None),
+        (glm5_3_debugmodel_mtp_npu, "sparse", "full", None),
+    ],
+)
+def test_glm5_single_card(tmp_path, monkeypatch, recipe, stage, checkpoint, regions):
+    _train_glm5_single_card(
+        tmp_path, monkeypatch, recipe, stage, checkpoint, regions
+    )
+
+
+def _train_glm5_single_card(
+    tmp_path,
+    monkeypatch,
+    recipe,
+    stage,
+    checkpoint,
+    regions,
+    *,
+    initial_state=None,
+    capture_state=False,
+):
+    if not hasattr(torch, "npu") or not torch.npu.is_available():
+        pytest.skip("requires one visible Ascend NPU")
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    for key, value in {
+        "RANK": "0",
+        "LOCAL_RANK": "0",
+        "WORLD_SIZE": "1",
+        "MASTER_ADDR": "127.0.0.1",
+        "MASTER_PORT": str(port),
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    setup()
+    config = recipe(seq_len=32, indexer_stage=stage)
+    if checkpoint == "full":
+        from torchtitan.distributed.activation_remat import FullActivationRematConfig
+
+        config.activation_remat = FullActivationRematConfig()
+    elif checkpoint == "selective":
+        config.activation_remat = DefaultActivationRematConfig()
+    else:
+        config.activation_remat = None
+    if regions is not None:
+        config.model.local_compile_regions = regions
+    config.dump_folder = str(tmp_path)
+    config.debug.seed = 42
+    config.training.steps = 2
+    trainer = None
+    try:
+        trainer = config.build()
+        model = trainer.engine.model_parts[0]
+        if initial_state is not None:
+            model.load_state_dict(initial_state, strict=True)
+            loaded = model.state_dict()
+            for name, value in initial_state.items():
+                torch.testing.assert_close(loaded[name], value, rtol=0, atol=0)
+        parameters = dict(trainer.engine.model_parts[0].named_parameters())
+        indexer = next(
+            parameter
+            for name, parameter in parameters.items()
+            if ".indexer.wq_b.weight" in name
+        )
+        backbone = next(
+            parameter
+            for name, parameter in parameters.items()
+            if "tok_embeddings.weight" in name
+        )
+        before_indexer = indexer.detach().clone()
+        before_backbone = backbone.detach().clone()
+        if stage == "warmup":
+            assert all(
+                not parameter.requires_grad
+                for name, parameter in parameters.items()
+                if ".indexer." not in name
+            )
+        metrics = []
+        original_log = trainer.metrics_processor.log
+
+        def capture(step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs):
+            metrics.append((global_avg_loss, grad_norm))
+            return original_log(
+                step, global_avg_loss, global_max_loss, grad_norm, *args, **kwargs
+            )
+
+        monkeypatch.setattr(trainer.metrics_processor, "log", capture)
+        trainer.train()
+        torch.npu.synchronize()
+        assert trainer.engine.num_completed_steps == 2
+        assert len(metrics) == 2
+        assert all(math.isfinite(value) for row in metrics for value in row)
+        assert torch.isfinite(backbone).all().item()
+        assert (not torch.equal(before_indexer, indexer)) == (stage != "frozen")
+        assert (not torch.equal(before_backbone, backbone)) == (stage != "warmup")
+        if capture_state:
+            return {
+                name: value.detach().clone()
+                for name, value in model.state_dict().items()
+            }
+    finally:
+        if trainer is not None:
+            trainer.close()
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
+
+def test_glm5_warmup_weights_continue_in_sparse_training(tmp_path, monkeypatch):
+    """Transfer all model weights between stages, rebuilding optimizer state."""
+    state = _train_glm5_single_card(
+        tmp_path / "warmup",
+        monkeypatch,
+        glm5_2_debugmodel_npu,
+        "warmup",
+        "selective",
+        None,
+        capture_state=True,
+    )
+    assert state
+    _train_glm5_single_card(
+        tmp_path / "sparse",
+        monkeypatch,
+        glm5_2_debugmodel_npu,
+        "sparse",
+        "selective",
+        None,
+        initial_state=state,
+    )
