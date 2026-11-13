@@ -100,7 +100,7 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 | [Qwen3](docs/models/qwen3.md) | debug | 文本 | 基础环境 |
 | [Qwen3.5](docs/models/qwen3_5.md) | debug、0.8B | 文本 | fla-npu 算子包 |
 | [Kimi K3](docs/models/kimi_k3.md) | debug | 图文 | fla-npu 算子包 |
-| [Kimi K3.1](docs/models/k3_1.md) | debug | 图文 | fla-npu 算子包 |
+| [Kimi K3.1](docs/models/kimi_k3_1.md) | debug、Pro | 图文 | fla-npu 算子包 |
 | [DeepSeek V4.1](docs/models/deepseek_v4_1.md) | debug | 文本 | 基础环境 |
 
 具体运行条件、限制与验证证据见对应模型文档及公开评审记录。现有配方不代表完整训练或所有并行组合已完成验证；正式支持状态遵循[维护策略](docs/maintenance.md#2-基线与支持状态)。
