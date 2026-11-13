@@ -18,6 +18,7 @@ from torchtitan.models.common import Linear, RMSNorm
 from torchtitan.models.common.attention import AttentionMetadata
 from torchtitan.models.common.aux_loss import register_aux_loss_zero_hook
 from torchtitan.models.common.feed_forward import DenseFeedForward
+from torchtitan.models.common.flops import quadratic_attention_flops_per_token
 from torchtitan.models.kimi_k3.model import (
     AttentionResidual,
     KimiK3Model,
@@ -123,7 +124,37 @@ class KimiK31Model(KimiK3Model):
 
     @dataclass(kw_only=True, slots=True)
     class Config(KimiK3Model.Config):
-        pass
+        layers: list[KimiK3TransformerBlock.Config]
+
+        def get_nparams_and_flops(
+            self, model: torch.nn.Module, seq_len: int
+        ) -> tuple[int, int]:
+            """Replace the dense MLA estimate with absorbed DSA and index work."""
+            nparams, flops = KimiK3Model.Config.get_nparams_and_flops(
+                self, model, seq_len
+            )
+            for layer in self.layers:
+                attention = layer.attention
+                if isinstance(attention, KimiDSAAttention.Config):
+                    qk_tail = attention.qk_rope_head_dim
+                    latent = attention.kv_lora_rank
+                    indexer = attention.indexer
+                    flops -= quadratic_attention_flops_per_token(
+                        num_heads=attention.n_heads,
+                        qk_head_dim=attention.qk_nope_head_dim + qk_tail,
+                        v_head_dim=attention.v_head_dim,
+                        seq_len=seq_len,
+                    )
+                    flops += quadratic_attention_flops_per_token(
+                        num_heads=attention.n_heads,
+                        qk_head_dim=latent + qk_tail,
+                        v_head_dim=latent,
+                        seq_len=min(seq_len, indexer.index_topk),
+                    )
+                    flops += (
+                        6 * indexer.num_index_heads * indexer.index_head_dim * seq_len
+                    )
+            return nparams, flops
 
     @classmethod
     def _register_optimizer_hooks(

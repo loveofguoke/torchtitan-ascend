@@ -178,7 +178,9 @@ class AscendAllToAllTokenDispatcher(AllToAllTokenDispatcher):
                 % num_local_experts
             )
             global_input_tokens_local_experts_indices = torch.repeat_interleave(
-                _expert_ids_per_ep_rank, num_global_tokens_per_local_expert_E.ravel()
+                _expert_ids_per_ep_rank,
+                num_global_tokens_per_local_expert_E.ravel(),
+                output_size=routed_input_RD.size(0),
             )
             routed_input_RD, ep_sorted_indices_R = permute(
                 routed_input_RD, global_input_tokens_local_experts_indices

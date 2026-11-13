@@ -7,9 +7,10 @@
 
 """Kimi K3.1 gated sparse attention for packed training."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING
+from typing import NamedTuple
 
 import spmd_types as spmd
 import torch
@@ -28,6 +29,14 @@ from torchtitan.models.common.attention import (
 from torchtitan.models.common.linear import maybe_gather_tp_input
 from torchtitan.models.deepseek_v4.compressor import SparseIndexerLoss
 from torchtitan.models.kimi_k3.attention import KimiMLAAttention
+
+
+class IndexerFeatures(NamedTuple):
+    """Projected query (T,H,Di), key (T,Di), and head weights (T,H)."""
+
+    query: torch.Tensor
+    key: torch.Tensor
+    weights: torch.Tensor
 
 
 @cache
@@ -103,20 +112,39 @@ def select_topk(
 
     if not return_scores:
         return indices_TK, None
+    return indices_TK, _selected_index_scores(q_THDi, k_SDi, weights_TH, indices_TK)
 
+
+def _gather_selected_rows(
+    source_SD: torch.Tensor, indices_TK: torch.Tensor
+) -> torch.Tensor:
+    # Keep masked slots spread across rows: a long repeated padding index can
+    # lose that row's FP32 gradient in the Ascend index_select backward kernel.
+    padding_T = torch.arange(indices_TK.size(0), device=indices_TK.device)
+    padding_T = padding_T.clamp_max(source_SD.size(0) - 1)
+    safe_TK = torch.where(torch.ge(indices_TK, 0), indices_TK, padding_T[:, None])
+    return source_SD.index_select(0, safe_TK.long().flatten()).unflatten(
+        0, indices_TK.shape
+    )
+
+
+def _selected_index_scores(
+    q_THDi: torch.Tensor,
+    k_SDi: torch.Tensor,
+    weights_TH: torch.Tensor,
+    indices_TK: torch.Tensor,
+) -> torch.Tensor:
     # Only selected scores need gradients for distillation.
-    gather_TK = indices_TK.clamp_min(0).long()
-    selected_keys_TKDi = k_SDi[gather_TK]
+    selected_keys_TKDi = _gather_selected_rows(k_SDi, indices_TK)
     selected_logits_THK = torch.einsum(
         "thd,tkd->thk", q_THDi.float(), selected_keys_TKDi.float()
     )
-    scores_TK = (
+    return (
         selected_logits_THK.relu()
         .mul(weights_TH.float().unsqueeze(-1))
         .sum(dim=1)
         .masked_fill(indices_TK < 0, -torch.inf)
     )
-    return indices_TK, scores_TK
 
 
 class Indexer(Module):
@@ -156,6 +184,26 @@ class Indexer(Module):
         self.k_norm = config.k_norm.build()
         self.weights_proj = config.weights_proj.build()
 
+    def _select(
+        self,
+        q_THDi: torch.Tensor,
+        k_TDi: torch.Tensor,
+        weights_TH: torch.Tensor,
+        *,
+        attention_metadata: VarlenAttentionMetadata | None,
+        padding_mask_T: torch.Tensor | None,
+        return_scores: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        return select_topk(
+            q_THDi,
+            k_TDi,
+            weights_TH,
+            top_k=self.index_topk,
+            attention_metadata=attention_metadata,
+            padding_mask_T=padding_mask_T,
+            return_scores=return_scores,
+        )
+
     def forward(
         self,
         x_TD: torch.Tensor,
@@ -164,7 +212,7 @@ class Indexer(Module):
         attention_metadata: VarlenAttentionMetadata | None,
         padding_mask_T: torch.Tensor | None,
         return_scores: bool,
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+    ) -> tuple[torch.Tensor, torch.Tensor | None, IndexerFeatures]:
         q_THDi = self.wq_b(q_latent_TA).unflatten(
             -1, (self.num_index_heads, self.index_head_dim)
         )
@@ -178,21 +226,23 @@ class Indexer(Module):
             q_THDi = _hadamard(q_THDi)
             k_TDi = _hadamard(k_TDi)
         remat.recompute_needs_tensor(q_THDi, k_TDi)
-        return select_topk(
+        indices_TK, scores_TK = self._select(
             q_THDi,
             k_TDi,
             weights_TH,
-            top_k=self.index_topk,
             attention_metadata=attention_metadata,
             padding_mask_T=padding_mask_T,
             return_scores=return_scores,
         )
+        return indices_TK, scores_TK, IndexerFeatures(q_THDi, k_TDi, weights_TH)
 
 
 class KimiDSALatentAttention(InnerAttention):
     """Reference attention over selected shared MLA latent K/V entries."""
 
+    __call__: Callable[..., torch.Tensor]
     training: bool
+    requires_index_scores: bool = True
 
     @dataclass(kw_only=True, slots=True)
     class Config(InnerAttention.Config):
@@ -240,6 +290,60 @@ class KimiDSALatentAttention(InnerAttention):
         self.wkv_b = config.wkv_b.build()
         self.aux_loss = config.aux_loss.build() if config.aux_loss is not None else None
 
+    def _attend(
+        self,
+        q_latent_THL: torch.Tensor,
+        q_shared_THR: torch.Tensor,
+        kv_latent_TL: torch.Tensor,
+        k_shared_TR: torch.Tensor,
+        topk_indices_TK: torch.Tensor,
+        attention_metadata: VarlenAttentionMetadata | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+        q_compact_THC = torch.cat((q_latent_THL, q_shared_THR), dim=-1).float()
+        k_compact_TC = torch.cat((kv_latent_TL, k_shared_TR), dim=-1).float()
+        selected_keys_TKC = _gather_selected_rows(k_compact_TC, topk_indices_TK)
+        logits_THK = (
+            torch.einsum("thc,tkc->thk", q_compact_THC, selected_keys_TKC)
+            * self.softmax_scale
+        )
+        valid_TK = torch.ge(topk_indices_TK, 0)
+        logits_THK = logits_THK.masked_fill(~valid_TK.unsqueeze(1), -torch.inf)
+        lse_TH = torch.logsumexp(logits_THK, dim=-1)
+        safe_lse_TH = torch.where(torch.isfinite(lse_TH), lse_TH, 0.0)
+        probs_THK = torch.exp(logits_THK - safe_lse_TH.unsqueeze(-1))
+        selected_values_TKL = _gather_selected_rows(
+            kv_latent_TL.float(), topk_indices_TK
+        )
+        out_latent_THL = torch.einsum("thk,tkl->thl", probs_THK, selected_values_TKL)
+        return out_latent_THL, lse_TH, q_compact_THC, k_compact_TC
+
+    def _apply_aux_loss(
+        self,
+        q_compact_THC: torch.Tensor,
+        k_compact_TC: torch.Tensor,
+        topk_indices_TK: torch.Tensor,
+        topk_scores_TK: torch.Tensor | None,
+        lse_TH: torch.Tensor,
+        *,
+        carrier: torch.Tensor,
+        denominator: torch.Tensor,
+        padding_mask_T: torch.Tensor | None,
+        attention_metadata: VarlenAttentionMetadata | None,
+        indexer_features: IndexerFeatures | None,
+    ) -> torch.Tensor:
+        assert self.aux_loss is not None and topk_scores_TK is not None
+        return self.aux_loss(
+            q_compact_THC.detach(),
+            k_compact_TC.detach(),
+            topk_indices_TK,
+            topk_scores_TK,
+            lse_TH.detach(),
+            None,
+            carrier=carrier,
+            denominator=denominator,
+            padding_mask_T=padding_mask_T,
+        )
+
     def forward(
         self,
         q_THE: torch.Tensor,
@@ -248,8 +352,10 @@ class KimiDSALatentAttention(InnerAttention):
         *,
         topk_indices_TK: torch.Tensor,
         topk_scores_TK: torch.Tensor | None,
+        attention_metadata: VarlenAttentionMetadata | None = None,
         aux_loss_denominator: torch.Tensor | None = None,
         padding_mask_T: torch.Tensor | None = None,
+        indexer_features: IndexerFeatures | None = None,
     ) -> torch.Tensor:
         with spmd.no_typecheck():
             num_tokens, num_heads = q_THE.shape[:2]
@@ -273,22 +379,13 @@ class KimiDSALatentAttention(InnerAttention):
                 q_latent_THL = torch.einsum(
                     "thn,hnl->thl", q_nope_THN, w_k_HNL  # codespell:ignore thn
                 )
-                q_compact_THC = torch.cat((q_latent_THL, q_shared_THR), dim=-1).float()
-                k_compact_TC = torch.cat((kv_latent_TL, k_shared_TR), dim=-1).float()
-                gather_TK = topk_indices_TK.clamp_min(0).long()
-                selected_keys_TKC = k_compact_TC[gather_TK]
-                logits_THK = (
-                    torch.einsum("thc,tkc->thk", q_compact_THC, selected_keys_TKC)
-                    * self.softmax_scale
-                )
-                valid_TK = torch.ge(topk_indices_TK, 0)
-                logits_THK = logits_THK.masked_fill(~valid_TK.unsqueeze(1), -torch.inf)
-                lse_TH = torch.logsumexp(logits_THK, dim=-1)
-                safe_lse_TH = torch.where(torch.isfinite(lse_TH), lse_TH, 0.0)
-                probs_THK = torch.exp(logits_THK - safe_lse_TH.unsqueeze(-1))
-                selected_values_TKL = kv_latent_TL.float()[gather_TK]
-                out_latent_THL = torch.einsum(
-                    "thk,tkl->thl", probs_THK, selected_values_TKL
+                out_latent_THL, lse_TH, q_compact_THC, k_compact_TC = self._attend(
+                    q_latent_THL,
+                    q_shared_THR,
+                    kv_latent_TL,
+                    k_shared_TR,
+                    topk_indices_TK,
+                    attention_metadata,
                 )
                 out_THV = torch.einsum(
                     "thl,hvl->thv", out_latent_THL, w_v_HVL.float()
@@ -298,17 +395,18 @@ class KimiDSALatentAttention(InnerAttention):
                         raise ValueError(
                             "SparseIndexerLoss requires aux_loss_denominator."
                         )
-                    assert topk_scores_TK is not None
-                    out_THV = self.aux_loss(
-                        q_compact_THC.detach(),
-                        k_compact_TC.detach(),
+                    assert q_compact_THC is not None and k_compact_TC is not None
+                    out_THV = self._apply_aux_loss(
+                        q_compact_THC,
+                        k_compact_TC,
                         topk_indices_TK,
                         topk_scores_TK,
-                        lse_TH.detach(),
-                        None,
+                        lse_TH,
                         carrier=out_THV,
                         denominator=aux_loss_denominator,
                         padding_mask_T=padding_mask_T,
+                        attention_metadata=attention_metadata,
+                        indexer_features=indexer_features,
                     )
         if spmd.is_type_checking():
             spmd.assert_type(
@@ -316,13 +414,11 @@ class KimiDSALatentAttention(InnerAttention):
             )
         return out_THV
 
-    if TYPE_CHECKING:
-        __call__ = forward
-
 
 class KimiDSAAttention(KimiMLAAttention):
     """Reuse the K3 MLA projections and gate with per-layer DSA selection."""
 
+    __call__: Callable[..., torch.Tensor]
     training: bool
     q_head_dim: int
     kv_lora_rank: int
@@ -387,12 +483,16 @@ class KimiDSAAttention(KimiMLAAttention):
 
         inner_attention = self.inner_attention
         with spmd.no_typecheck():
-            topk_indices_TK, topk_scores_TK = self.indexer(
+            topk_indices_TK, topk_scores_TK, indexer_features = self.indexer(
                 x_TD.detach(),
                 q_latent_TA.detach(),
                 attention_metadata=attention_metadata,
                 padding_mask_T=padding_mask_T,
-                return_scores=self.training and inner_attention.aux_loss is not None,
+                return_scores=(
+                    self.training
+                    and inner_attention.aux_loss is not None
+                    and inner_attention.requires_index_scores
+                ),
             )
         out_THV = inner_attention(
             q_THE,
@@ -400,12 +500,11 @@ class KimiDSAAttention(KimiMLAAttention):
             k_shared_TR,
             topk_indices_TK=topk_indices_TK,
             topk_scores_TK=topk_scores_TK,
+            attention_metadata=attention_metadata,
             aux_loss_denominator=aux_loss_denominator,
             padding_mask_T=padding_mask_T,
+            indexer_features=indexer_features,
         )
         gate_TF = self.gate(x_TD)
         remat.recompute_needs_tensor(out_THV, gate_TF)
         return self.wo(out_THV.flatten(-2) * torch.sigmoid(gate_TF))
-
-    if TYPE_CHECKING:
-        __call__ = forward

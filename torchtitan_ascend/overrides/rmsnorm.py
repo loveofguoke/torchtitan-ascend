@@ -3,17 +3,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
 
 from torchtitan.config import derive, override
 from torchtitan.models.common.nn_modules import RMSNorm
+from torchtitan.models.common.norm import GatedRMSNorm
 
 __all__ = [
     "AscendCRMSNorm",
+    "AscendCGatedRMSNorm",
     "rmsnorm",
     "ascendc_rmsnorm",
+    "ascendc_gated_rmsnorm",
 ]
 
 
@@ -45,3 +49,22 @@ class AscendCRMSNorm(RMSNorm):
 @override(target=RMSNorm.Config, exact=True, description="Ascend C RMSNorm")
 def ascendc_rmsnorm(config):
     return derive(config, AscendCRMSNorm.Config)
+
+
+class AscendCGatedRMSNorm(GatedRMSNorm):
+    weight: torch.Tensor | None
+    eps: float | None
+    activation_fn: Callable[[torch.Tensor], torch.Tensor]
+
+    @dataclass(kw_only=True, slots=True)
+    class Config(GatedRMSNorm.Config):
+        pass
+
+    def forward(self, input: torch.Tensor, gate: torch.Tensor) -> torch.Tensor:
+        normalized = rmsnorm(input.float(), self.weight, self.eps)
+        return (normalized * self.activation_fn(gate.float())).to(input.dtype)
+
+
+@override(target=GatedRMSNorm.Config, exact=True, description="Ascend C gated RMSNorm")
+def ascendc_gated_rmsnorm(config: GatedRMSNorm.Config) -> AscendCGatedRMSNorm.Config:
+    return derive(config, AscendCGatedRMSNorm.Config)

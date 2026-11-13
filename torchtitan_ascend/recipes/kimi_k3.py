@@ -7,6 +7,8 @@
 
 from typing import Literal
 
+from torchtitan.components.data.multimodal.mm_datasets import MMSamplePackingConfig
+
 from torchtitan.config import apply_overrides, derive, OverrideConfig
 from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.config.transform import apply_transforms, ContextParallelTransform
@@ -134,6 +136,10 @@ def kimi_k3_7b_npu(
     """Build the 13-layer, 32-expert NPU recipe with 2 MiB-aligned expert shards."""
     # Validate the requested topology after replacing the eight-expert debug model.
     config = kimi_k3_debugmodel(attn_backend=attn_backend)
+    config.dataloader.dataset = MMSamplePackingConfig(
+        dataset=config.dataloader.dataset,
+        num_packing_bins=1,
+    )
     if parallelism is not None:
         config.parallelism = parallelism
     dim = 4608

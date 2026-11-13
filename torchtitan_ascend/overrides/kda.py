@@ -355,8 +355,8 @@ def npu_chunk_kda(
         use_gate_in_kernel,
         A_log,
         dt_bias,
-        use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
-        use_beta_sigmoid_in_kernel=use_beta_sigmoid_in_kernel,
+        use_qk_l2norm_in_kernel,
+        use_beta_sigmoid_in_kernel,
     )
     return o, final_state
 
