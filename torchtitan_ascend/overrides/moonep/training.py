@@ -5,18 +5,21 @@ from dataclasses import dataclass, field, replace
 from typing import Any, cast
 from unittest.mock import patch
 
+import torch.distributed as dist
 from torch.distributed.tensor import Shard
 from torchtitan.components.checkpointer.utils import canonical_fqn
 from torchtitan.components.optim import DistMuon
 from torchtitan.config import derive
 from torchtitan.distributed import fsdp
 from torchtitan.distributed.flex_shard import ComputeLayout
+from torchtitan.distributed.parallelism_context import ParallelismContext
+from torchtitan.models.base.model import BaseModel
 from torchtitan.models.common.moe import RoutedExperts
-from torchtitan.models.kimi_k3.model import KimiK3Model
 from torchtitan.trainer import Trainer
 from torchtitan.training_engine import TrainingEngine
 
 from .experts import MoonEPRoutedExperts, MoonEPTokenDispatcher
+from .pipeline import configure_pipeline_backward, split_backward_context
 from .runtime import close_runtime, current_runtime
 from .settings import MoonEPConfig
 
@@ -64,19 +67,14 @@ def _expert_optimizer_layout(optimizer_config, expert_weight_fqns):
 
 def _topology_tokens(parallelism, num_tokens_per_dp_rank):
     """Fold dense token partitions into EP, retaining one owner per expert shard."""
-    if parallelism.pipeline_parallel_degree != 1:
-        raise ValueError("Ascend MoonEP currently requires PP=1")
-    if (
-        parallelism.expert_parallel_degree <= 1
-        or parallelism.data_parallel_replicate_degree != 1
-    ):
-        raise ValueError("Ascend MoonEP requires EP > 1 and DP replicate = 1")
+    if parallelism.expert_parallel_degree <= 1:
+        raise ValueError("Ascend MoonEP requires EP > 1")
     if min(parallelism.tensor_parallel_degree, parallelism.context_parallel_degree) < 1:
         raise ValueError("MoonEP TP and CP degrees must be positive")
     num_token_partitions = (
         parallelism.tensor_parallel_degree * parallelism.context_parallel_degree
     )
-    if (
+    if parallelism.data_parallel_shard_degree != -1 and (
         parallelism.data_parallel_shard_degree * num_token_partitions
         != parallelism.expert_parallel_degree
     ):
@@ -89,16 +87,53 @@ def _topology_tokens(parallelism, num_tokens_per_dp_rank):
 class MoonEPTrainingEngine(TrainingEngine):
     """Bind resident homes before optimizers; keep dense FSDP and ordinary checkpointing."""
 
+    model_config: BaseModel.Config
+    pp_schedule: Any
     model_parts: list[Any]
+    parallelism_context: ParallelismContext
     config: Any
+    _expert_parameters: list[Any]
+    _split_backward: bool = False
 
     def _initialize_model(self, **kwargs):
+        ctx = self.parallelism_context
+        if ctx.dp_shard * ctx.tp * ctx.cp != ctx.ep:
+            raise ValueError(
+                "Resident MoonEP experts require DP shard * TP * CP = EP "
+                "(no expert data parallelism)"
+            )
         # Limit the collection change to this engine's model construction.
         with patch.object(fsdp, "fully_shard", _exclude_experts(fsdp.fully_shard)):
             return super()._initialize_model(**kwargs)
 
+    def _parallelize_compile_kwargs(self):
+        options = super()._parallelize_compile_kwargs()
+        if self.parallelism_context.pp_enabled:
+            from torch.distributed.pipelining.schedules import (
+                get_schedule_class,
+                ScheduleDualPipeV,
+                ScheduleZBVZeroBubble,
+            )
+            from torchtitan.models.kimi_k3.model import KimiK3Model
+
+            schedule_class = get_schedule_class(
+                self.config.parallelism.pipeline_parallel_schedule
+            )
+            if isinstance(self.model_config, KimiK3Model.Config) and schedule_class in (
+                ScheduleZBVZeroBubble,
+                ScheduleDualPipeV,
+            ):
+                # Kimi's native rank-store cache requires a loop assignment.
+                options["attn_res_cache"] = False
+        return options
+
     def _initialize_optim(self):
         expert_weight_fqns = set()
+        self._expert_parameters = []
+        expert_mesh = self.parallelism_context.get_activated_mesh(
+            ["dp_replicate", "edp_shard", "ep"]
+        )
+        assert expert_mesh is not None
         for model_part in self.model_parts:
             for module_fqn, module in model_part.named_modules():
                 if isinstance(module, MoonEPRoutedExperts):
@@ -107,7 +142,7 @@ class MoonEPTrainingEngine(TrainingEngine):
                     module.weight_projections, home_parameters = runtime.bind(
                         module.w13.weight,
                         module.w2.weight,
-                        module.token_dispatcher.ep_device_mesh,
+                        expert_mesh,
                     )
                     for projection_name, parameter in zip(
                         ("w13", "w2"), home_parameters, strict=True
@@ -115,6 +150,7 @@ class MoonEPTrainingEngine(TrainingEngine):
                         getattr(module, projection_name).register_parameter(
                             "weight", parameter
                         )
+                        self._expert_parameters.append(parameter)
                         expert_weight_fqns.add(
                             canonical_fqn(f"{module_fqn}.{projection_name}.weight")
                         )
@@ -123,7 +159,31 @@ class MoonEPTrainingEngine(TrainingEngine):
         )
         return super()._initialize_optim()
 
+    def optim_step(self):
+        replica_mesh = self.parallelism_context.get_optional_mesh("dp_replicate")
+        if replica_mesh is not None:
+            for parameter in self._expert_parameters:
+                if parameter.grad is not None:
+                    local_grad = parameter.grad.to_local()
+                    reduced_grad = local_grad.float()
+                    # Loss is already normalized by the global token count.
+                    dist.all_reduce(reduced_grad, group=replica_mesh.get_group())
+                    local_grad.copy_(reduced_grad)
+        return super().optim_step()
+
+    def forward_backward(self, **kwargs):
+        if not self._split_backward:
+            return super().forward_backward(**kwargs)
+        with split_backward_context(
+            remat_enabled=self.config.activation_remat is not None
+        ):
+            return super().forward_backward(**kwargs)
+
     def _initialize_forward_backward(self):
+        self._split_backward = (
+            self.parallelism_context.pp_enabled
+            and configure_pipeline_backward(self.pp_schedule)
+        )
         current_runtime().start()
         return super()._initialize_forward_backward()
 
@@ -148,10 +208,6 @@ class MoonEPTrainer(Trainer):
             num_max_tokens_per_rank = _topology_tokens(
                 parallelism, training.num_tokens_per_microbatch_per_dp_rank
             )
-            if parallelism.context_parallel_degree > 1 and isinstance(
-                config.model, KimiK3Model.Config
-            ):
-                raise ValueError("Kimi K3 does not support context parallelism")
             if parallelism.tensor_parallel_degree > 1 and any(
                 isinstance(optimizer, DistMuon.Config)
                 for optimizer in config.optim.optimizer.optimizers

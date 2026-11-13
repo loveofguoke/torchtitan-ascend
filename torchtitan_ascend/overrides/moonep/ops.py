@@ -145,7 +145,7 @@ def _experts(
     w2_weight: Tensor,
     group_end_offsets: Tensor,
     plan_id: Tensor,
-    source_input: Tensor | None,
+    split_backward: bool = False,
 ) -> tuple[Tensor, Tensor, Tensor]:
     plan_state = _plans[int(plan_id)]
     current_runtime().trace("experts.forward.begin")
@@ -181,14 +181,15 @@ def _experts_setup(ctx, inputs, output):
         w2_weight,
         group_end_offsets,
         plan_id,
-        source_input,
+        split_backward,
     ) = inputs
+    ctx.split_backward = split_backward
+    ctx.deferred_weight_backward = None
     ctx.plan_state = _plans.get(int(plan_id))
     ctx.mark_non_differentiable(output[1], output[2])
     ctx.set_materialize_grads(False)
-    ctx.recompute_dispatch = source_input is not None
     ctx.save_for_backward(
-        source_input if source_input is not None else dispatched_input,
+        dispatched_input,
         route_weights,
         output[1],
         output[2],
@@ -198,8 +199,51 @@ def _experts_setup(ctx, inputs, output):
     )
 
 
+@dataclass(slots=True)
+class _DeferredWeightBackward:
+    """Owned per-microbatch tensors; no references to reusable weight pools."""
+
+    dispatched_input: Tensor
+    grad_gate_up_features: Tensor
+    activated_features: Tensor
+    grad_expert_output: Tensor
+    group_end_offsets: Tensor
+    input_grads: tuple[Tensor, Tensor]
+    w13_shape: torch.Size
+    weight_dtypes: tuple[torch.dtype, torch.dtype]
+
+    def backward(self, comm_plan):
+        grouped_grads = (
+            weight_grad(
+                self.grad_gate_up_features,
+                self.dispatched_input,
+                self.group_end_offsets,
+            ),
+            weight_grad(
+                self.grad_expert_output, self.activated_features, self.group_end_offsets
+            ),
+        )
+        grad_w13, grad_w2 = current_runtime().reduce(
+            comm_plan, grouped_grads, self.weight_dtypes
+        )
+        return *self.input_grads, grad_w13.reshape(self.w13_shape), grad_w2
+
+
 def _experts_backward(ctx, grad_weighted_output, *_):
+    return (*_expert_grads(ctx, grad_weighted_output), None, None, None)
+
+
+def _expert_grads(ctx, grad_output, *, recompute_dispatch: bool = False):
+    deferred = ctx.deferred_weight_backward
+    if deferred is not None:
+        # Native W resumes with the adjoints captured during I; no communication replay.
+        ctx.deferred_weight_backward = None
+        return deferred.backward(ctx.plan_state.comm_plan)
+    grad_weighted_output = (
+        _combine_backward(ctx, grad_output)[0] if recompute_dispatch else grad_output
+    )
     runtime = current_runtime()
+    split_backward: bool = ctx.split_backward
     runtime.trace("experts.backward.begin")
     (
         saved_input,
@@ -212,7 +256,7 @@ def _experts_backward(ctx, grad_weighted_output, *_):
     ) = ctx.saved_tensors
     dispatched_input = saved_input
     plan_state = ctx.plan_state
-    if ctx.recompute_dispatch:
+    if recompute_dispatch:
         dispatched_input = _clear_tail(
             runtime.call(
                 "dispatch",
@@ -246,12 +290,14 @@ def _experts_backward(ctx, grad_weighted_output, *_):
     (grad_gate_up_features,) = torch.autograd.grad(
         activated_features, gate_up_features, grad_activated_features
     )
-    grouped_grad_w13 = weight_grad(
-        grad_gate_up_features, dispatched_input, group_end_offsets
-    )
-    grouped_grad_w2 = weight_grad(
-        grad_expert_output, activated_features.detach(), group_end_offsets
-    )
+    grouped_weight_grads = None
+    if not split_backward:
+        grouped_weight_grads = (
+            weight_grad(grad_gate_up_features, dispatched_input, group_end_offsets),
+            weight_grad(
+                grad_expert_output, activated_features.detach(), group_end_offsets
+            ),
+        )
     grad_dispatched_input = _clear_tail(
         rows_mm(
             grad_gate_up_features,
@@ -261,21 +307,34 @@ def _experts_backward(ctx, grad_weighted_output, *_):
         ),
         plan_state.num_valid_rows,
     )
-    grad_w13_weight, grad_w2_weight = runtime.reduce(
-        plan_state.comm_plan,
-        (grouped_grad_w13, grouped_grad_w2),
-        (w13_weight.dtype, w2_weight.dtype),
-    )
+    input_grads = (grad_dispatched_input, grad_route_weights)
+    if split_backward:
+        # Keep only per-microbatch tensors until native W; shared pools stay free.
+        ctx.deferred_weight_backward = _DeferredWeightBackward(
+            dispatched_input=dispatched_input,
+            grad_gate_up_features=grad_gate_up_features,
+            activated_features=activated_features.detach(),
+            grad_expert_output=grad_expert_output,
+            group_end_offsets=group_end_offsets,
+            input_grads=input_grads,
+            w13_shape=w13_weight.shape,
+            weight_dtypes=(w13_weight.dtype, w2_weight.dtype),
+        )
+        grad_w13_weight = grad_w2_weight = None
+    else:
+        assert grouped_weight_grads is not None
+        grad_w13_weight, grad_w2_weight = runtime.reduce(
+            plan_state.comm_plan,
+            grouped_weight_grads,
+            (w13_weight.dtype, w2_weight.dtype),
+        )
+        grad_w13_weight = grad_w13_weight.reshape(w13_weight.shape)
     runtime.trace("experts.backward.end")
-    return (
-        grad_dispatched_input,
-        grad_route_weights,
-        grad_w13_weight.reshape(w13_weight.shape),
-        grad_w2_weight,
-        None,
-        None,
-        None,
-    )
+    if recompute_dispatch:
+        input_grads = _dispatch_backward(ctx, *input_grads)[:2]
+        if split_backward:
+            ctx.deferred_weight_backward.input_grads = input_grads
+    return *input_grads, grad_w13_weight, grad_w2_weight
 
 
 @torch.library.custom_op("ascend_moonep::combine", mutates_args=())
@@ -337,7 +396,7 @@ def routed_experts(
     plan_id,
     region,
     *,
-    source_input=None,
+    split_backward=False,
 ):
     """Evaluate and differentiate experts using shared pools, retaining gate/up activations."""
     plan_state = _plans.get(int(plan_id))
@@ -351,7 +410,7 @@ def routed_experts(
         w2_weight,
         group_end_offsets,
         plan_id,
-        source_input,
+        split_backward,
     )
     remat.recompute_needs_tensor(weighted_expert_output)
     return weighted_expert_output
@@ -380,6 +439,7 @@ def _recomputed_experts(
     w2_weight: Tensor,
     call_id: int,
     will_backward: bool,
+    split_backward: bool = False,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     dispatched_input, route_weights, group_end_offsets, plan_id = _dispatch(
         source_input, topk_scores, topk_expert_ids, tokens_per_expert
@@ -393,7 +453,6 @@ def _recomputed_experts(
         w2_weight,
         group_end_offsets,
         plan_id,
-        source_input,
     )
     combined_output = _combine(weighted_expert_output, plan_id, will_backward)
     return (
@@ -407,9 +466,10 @@ def _recomputed_experts(
 
 
 def _recomputed_setup(ctx, inputs, output):
-    source_input, _, _, _, w13_weight, w2_weight, _, _ = inputs
+    source_input, _, _, _, w13_weight, w2_weight, _, _, split_backward = inputs
+    ctx.split_backward = split_backward
+    ctx.deferred_weight_backward = None
     ctx.plan_state = _plans.pop(int(output[5]), None)
-    ctx.recompute_dispatch = True
     ctx.mark_non_differentiable(*output[1:])
     ctx.set_materialize_grads(False)
     ctx.save_for_backward(
@@ -418,17 +478,12 @@ def _recomputed_setup(ctx, inputs, output):
 
 
 def _recomputed_backward(ctx, grad_combined_output, *_):
-    grad_weighted_output = _combine_backward(ctx, grad_combined_output)[0]
     (
-        grad_dispatched_input,
-        grad_route_weights,
+        grad_source_input,
+        grad_topk_scores,
         grad_w13_weight,
         grad_w2_weight,
-        *_,
-    ) = _experts_backward(ctx, grad_weighted_output)
-    grad_source_input, grad_topk_scores, *_ = _dispatch_backward(
-        ctx, grad_dispatched_input, grad_route_weights
-    )
+    ) = _expert_grads(ctx, grad_combined_output, recompute_dispatch=True)
     return (
         grad_source_input,
         grad_topk_scores,
@@ -436,6 +491,7 @@ def _recomputed_backward(ctx, grad_combined_output, *_):
         None,
         grad_w13_weight,
         grad_w2_weight,
+        None,
         None,
         None,
     )
@@ -457,6 +513,8 @@ def recomputed_experts(
     w13_weight,
     w2_weight,
     region,
+    *,
+    split_backward=False,
 ):
     """Retain one ordered MoE region; only redispatch the saved source in backward."""
     call_id = id(weight_projections)
@@ -477,6 +535,7 @@ def recomputed_experts(
             w2_weight,
             call_id,
             will_backward,
+            split_backward,
         )
     finally:
         _expert_calls.pop(call_id)

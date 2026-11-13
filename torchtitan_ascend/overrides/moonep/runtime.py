@@ -13,7 +13,7 @@ from typing import Any
 
 import torch
 import torch.distributed as dist
-from torch.distributed.tensor import DTensor, Shard
+from torch.distributed.tensor import DTensor, Replicate, Shard
 
 from .settings import MoonEPConfig, validate_endpoint
 
@@ -61,6 +61,35 @@ def _bootstrap_gather(ep_group, device, state_values):
     return gathered_states.view(ep_group.size(), -1).cpu().tolist()
 
 
+def _bootstrap_leader_address(ep_group, device, master_addr, master_port):
+    """Use the EP leader's routable source address, including on non-master nodes."""
+    state = [0] * 18
+    address_error = None
+    if dist.get_rank(ep_group) == 0:
+        try:
+            family, _, _, _, target = socket.getaddrinfo(
+                master_addr, master_port, type=socket.SOCK_DGRAM
+            )[0]
+            with socket.socket(family, socket.SOCK_DGRAM) as route:
+                route.connect(target)
+                address = route.getsockname()[0]
+            packed = socket.inet_pton(family, address)
+            state[1] = int(family == socket.AF_INET6)
+            state[2 : 2 + len(packed)] = packed
+        except OSError as error:
+            state[0], address_error = 1, error
+    leader_state = _bootstrap_gather(ep_group, device, state)[0]
+    if leader_state[0]:
+        raise ValueError(
+            "Cannot resolve the MoonEP leader's bootstrap address"
+        ) from address_error
+    ipv6 = bool(leader_state[1])
+    return socket.inet_ntop(
+        socket.AF_INET6 if ipv6 else socket.AF_INET,
+        bytes(leader_state[2 : 18 if ipv6 else 6]),
+    )
+
+
 def _bootstrap_endpoint(ep_group, device, endpoint):
     # GROUP_RANK identifies a torchrun node even when containers share a hostname.
     node_id = os.environ.get("GROUP_RANK")
@@ -96,10 +125,11 @@ def _bootstrap_endpoint(ep_group, device, endpoint):
     if len({rank_state[0] for rank_state in rank_states}) == 1:
         return None
     # All ranks take this second collective, including ranks with invalid env.
+    master_addr, master_port = os.environ.get("MASTER_ADDR"), os.environ.get(
+        "MASTER_PORT"
+    )
+    bootstrap_port = None
     try:
-        master_addr, master_port = os.environ.get("MASTER_ADDR"), os.environ.get(
-            "MASTER_PORT"
-        )
         if not master_addr or not master_port:
             raise ValueError(
                 "Multi-host MoonEP requires shmem_ip_port or MASTER_ADDR and MASTER_PORT"
@@ -109,7 +139,9 @@ def _bootstrap_endpoint(ep_group, device, endpoint):
             if ":" in master_addr and not master_addr.startswith("[")
             else master_addr
         )
-        endpoint = validate_endpoint(f"tcp://{host_literal}:{int(master_port) + 1}")
+        leader_rank = dist.get_global_rank(ep_group, 0)
+        bootstrap_port = int(master_port) + 1 + leader_rank
+        endpoint = validate_endpoint(f"tcp://{host_literal}:{bootstrap_port}")
     except ValueError as validation_error:
         endpoint_error = validation_error
     rank_states = _bootstrap_gather(
@@ -123,7 +155,16 @@ def _bootstrap_endpoint(ep_group, device, endpoint):
         raise ValueError(
             "MoonEP EP ranks derived different bootstrap endpoints; set shmem_ip_port explicitly"
         )
-    return endpoint
+    assert (
+        master_addr is not None
+        and master_port is not None
+        and bootstrap_port is not None
+    )
+    leader_address = _bootstrap_leader_address(
+        ep_group, device, master_addr, int(master_port)
+    )
+    host_literal = f"[{leader_address}]" if ":" in leader_address else leader_address
+    return validate_endpoint(f"tcp://{host_literal}:{bootstrap_port}")
 
 
 class MoonEPRuntime:
@@ -285,7 +326,10 @@ class MoonEPRuntime:
             home_dtensor = DTensor.from_local(
                 projection.home.view(local_weight.shape),
                 ep_mesh,
-                (Shard(0),),
+                tuple(
+                    Shard(0) if name == "ep" else Replicate()
+                    for name in ep_mesh.mesh_dim_names
+                ),
                 run_check=False,
             )
             home_parameters.append(

@@ -29,7 +29,6 @@ class MoonEPDispatchMetadata:
     route_weights: torch.Tensor
     group_end_offsets: torch.Tensor
     num_tokens: int
-    source_input: torch.Tensor | None = None
 
 
 def _checkpoint_expert_weights(module, state_dict, prefix, local_metadata):
@@ -167,9 +166,6 @@ class MoonEPTokenDispatcher(BaseEPTokenDispatcher):
                 route_weights,
                 group_end_offsets,
                 num_tokens,
-                source_input
-                if self.communication_options["recompute_dispatch"]
-                else None,
             ),
         )
 
@@ -194,6 +190,7 @@ class MoonEPRoutedExperts(RoutedExperts):
 
     def __init__(self, config):
         super().__init__(config)
+        self.split_backward = False
         cast(torch.nn.Module, self).register_state_dict_post_hook(
             _checkpoint_expert_weights
         )
@@ -246,6 +243,7 @@ class MoonEPRoutedExperts(RoutedExperts):
                     self.w13.weight.to_local(),
                     self.w2.weight.to_local(),
                     self.remat_region_name("moonep_experts"),
+                    split_backward=self.split_backward,
                 )
             return combined_output[: x_TD.shape[0]].to(x_TD.dtype)
         dispatched_input, _, metadata = self.token_dispatcher.dispatch(
@@ -262,7 +260,7 @@ class MoonEPRoutedExperts(RoutedExperts):
                 metadata.group_end_offsets,
                 metadata.plan_id,
                 self.remat_region_name("moonep_experts"),
-                source_input=metadata.source_input,
+                split_backward=self.split_backward,
             )
         return self.token_dispatcher.combine(weighted_expert_output, metadata, x_TD)
 
