@@ -2,7 +2,7 @@
 
 ## 环境要求
 
-- 硬件与系统：A5（Ascend 950）、Linux aarch64。
+- 硬件与系统：Ascend 950PR&DT系列产品、Linux aarch64。
 - 软件：Python 3.12、CANN 9.2.0 及配套驱动和固件。
 - 构建工具：Git、支持 C++20 的编译器、Clang/LLD 和 zlib 开发库。
 
@@ -14,7 +14,7 @@
 | Triton-Ascend | `3.6.0` |
 | TorchTitan | `0.4.0`，提交 `45e33cd413b64cb37a7840cfd3c9765d3c639ae1` |
 
-A2 / A3 的兼容性状态见 [Issue #7](https://gitcode.com/Ascend/torchtitan-ascend/issues/7)，各模型的支持范围见[模型文档](README.md#模型文档)。
+各模型的支持范围见[模型与配方](README.md#模型与配方)。
 
 ## 准备环境
 
@@ -115,4 +115,4 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
     ./run_train.sh
 ```
 
-该配方使用内置 tokenizer 和测试数据，运行 10 步。其他模型的依赖、数据和启动方式见[模型文档](README.md#模型文档)。
+该配方使用内置 tokenizer 和测试数据，运行 10 步。其他模型的依赖、数据和启动方式见[模型与配方](README.md#模型与配方)。
