@@ -52,7 +52,7 @@ uv pip install -r requirements.txt pip setuptools wheel packaging
 
   ```bash
   cd "$FLA_NPU_SRC"
-  # KDA 支持 Ascend 950 和 Ascend 920。按设备对应的 CANN SoC 设置下列变量
+  # KDA 支持 Ascend 950 和 Ascend 910。按设备对应的 CANN SoC 设置下列变量
   export FLA_NPU_SOC=ascend950
   FLA_NPU_OPS=causal_conv1d,causal_conv1d_bwd,chunk_gated_delta_rule_fwd,chunk_gated_delta_rule_bwd,chunk_kda_fwd,chunk_kda_bwd \
       python scripts/build_wheel.py --no-progress
