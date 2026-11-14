@@ -200,11 +200,10 @@ class MoonEPRoutedExperts(RoutedExperts):
         def __post_init__(self):
             RoutedExperts.Config.__post_init__(self)
             config = cast(RoutedExperts.Config, self)
-            if (
-                type(config.w13) is not GroupedLinear.Config
-                or type(config.w2) is not GroupedLinear.Config
+            if not isinstance(config.w13, GroupedLinear.Config) or not isinstance(
+                config.w2, GroupedLinear.Config
             ):
-                raise ValueError("MoonEP requires plain GroupedLinear experts")
+                raise ValueError("MoonEP requires GroupedLinear experts")
             if config.output_postprocess is not None:
                 raise ValueError("MoonEP does not support expert output_postprocess")
 
