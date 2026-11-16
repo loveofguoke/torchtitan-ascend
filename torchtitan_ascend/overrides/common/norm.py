@@ -35,6 +35,7 @@ def rmsnorm_forward(x, weight, eps):
 class AscendRMSNorm(RMSNorm):
     weight: torch.Tensor | None
     eps: float | None
+    normalized_shape: tuple[int, ...]
 
     @dataclass(kw_only=True, slots=True)
     class Config(RMSNorm.Config):
