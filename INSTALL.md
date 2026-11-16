@@ -21,7 +21,7 @@
 在同一工作目录中依次执行以下命令，源码分别放在 `torchtitan-ascend/`、`torch_npu/` 和 `torchtitan/`：
 
 ```bash
-git clone --branch refactor/npu-override https://gitcode.com/Ascend/torchtitan-ascend.git
+git clone --branch main https://gitcode.com/Ascend/torchtitan-ascend.git
 python3.12 -m venv torchtitan-ascend/.venv
 source torchtitan-ascend/.venv/bin/activate
 python -m pip install uv
@@ -111,7 +111,7 @@ unset PYTORCH_NPU_ALLOC_CONF
 
 cd torchtitan
 ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.qwen3 CONFIG=qwen3_debugmodel_npu \
+    MODULE=torchtitan_ascend_recipes.models.qwen3 CONFIG=qwen3_debugmodel_npu \
     ./run_train.sh
 ```
 

@@ -26,15 +26,15 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["torchtitan_ascend*"]
+include = ["torchtitan_ascend", "torchtitan_ascend.*", "torchtitan_ascend_recipes", "torchtitan_ascend_recipes.*"]
 
 [tool.usort]
-# Preserve upstream import grouping for sparsely migrated tests.
-known_first_party = ["tests"]
+# Keep both local packages in the same import group.
+known_first_party = ["tests", "torchtitan_ascend", "torchtitan_ascend_recipes"]
 
 [tool.pyrefly]
 python-version = "3.12"
-project-includes = ["torchtitan_ascend/**/*.py", "pre-commit/**/*.py"]
+project-includes = ["torchtitan_ascend/**/*.py", "torchtitan_ascend_recipes/**/*.py", "pre-commit/**/*.py"]
 # Match TorchTitan v0.4.0: tests are excluded from Pyrefly.
 project-excludes = ["**/tests/**"]
 # These external runtime packages are unavailable in the isolated lint env.

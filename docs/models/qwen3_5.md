@@ -25,7 +25,7 @@ cd ..
 
 ## 训练配置
 
-配置模块：`torchtitan_ascend.recipes.qwen3_5`。
+配置模块：`torchtitan_ascend_recipes.models.qwen3_5`。
 
 | CONFIG | 模型 | 数据 |
 |---|---|---|
@@ -67,7 +67,7 @@ export ASCEND_CUSTOM_OPP_PATH="$FLA_NPU_OPP${ASCEND_CUSTOM_OPP_PATH:+:$ASCEND_CU
 ```bash
 cd torchtitan
 ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.qwen3_5 CONFIG=qwen35_debugmodel_npu \
+    MODULE=torchtitan_ascend_recipes.models.qwen3_5 CONFIG=qwen35_debugmodel_npu \
     ./run_train.sh
 ```
 
@@ -78,7 +78,7 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 0.8B 配方接受包含字符串字段 `text` 的 JSON 或 JSONL 文件。将以下配方保存为 `torchtitan/my_config.py`：
 
 ```python
-from torchtitan_ascend.recipes.qwen3_5 import qwen35_0_8b_npu
+from torchtitan_ascend_recipes.models.qwen3_5 import qwen35_0_8b_npu
 
 
 def train_config():

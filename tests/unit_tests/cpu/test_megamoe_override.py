@@ -17,14 +17,15 @@ from torchtitan.models.common.activation import Sigmoid
 from torchtitan.models.common.linear import GroupedLinear
 from torchtitan.models.common.moe import RoutedExperts
 from torchtitan.models.common.moe.token_dispatcher import LocalTokenDispatcher
+
 from torchtitan_ascend.config.override_utils import add_override
 from torchtitan_ascend.models.deepseek_v4_1 import DeepSeekV41Model
 from torchtitan_ascend.overrides.hyper_parallel.megamoe import (
     _ExecutionGroup,
-    npu_megamoe,
     MegaMoeRoutedExperts,
+    npu_megamoe,
 )
-from torchtitan_ascend.recipes.deepseek_v4_1 import deepseek_v4_1_debugmodel_npu
+from torchtitan_ascend_recipes.models.deepseek_v4_1 import deepseek_v4_1_debugmodel_npu
 
 
 class ReferenceExecutor(torch.nn.Module):

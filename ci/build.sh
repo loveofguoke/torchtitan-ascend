@@ -7,7 +7,7 @@ usage() {
     echo 'Environment: PLATFORM (default linux/arm64), MAX_JOBS (default 32),'
     echo '             CORPORATE_CA_FILE (PEM to trust inside the image)'
     echo '             ASCEND_REPO (default https://gitcode.com/Ascend/torchtitan-ascend.git),'
-    echo '             ASCEND_BRANCH (default refactor/npu-override)'
+    echo '             ASCEND_BRANCH (default main)'
 }
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
     usage
@@ -35,7 +35,7 @@ if [[ "$target" == a2 && "$platform" != linux/arm64 ]]; then
 fi
 
 ascend_repo="${ASCEND_REPO:-https://gitcode.com/Ascend/torchtitan-ascend.git}"
-ascend_branch="${ASCEND_BRANCH:-refactor/npu-override}"
+ascend_branch="${ASCEND_BRANCH:-main}"
 build_args=(--build-arg "ASCEND_REPO=$ascend_repo"
             --build-arg "ASCEND_BRANCH=$ascend_branch")
 

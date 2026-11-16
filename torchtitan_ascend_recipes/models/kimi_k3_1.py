@@ -42,21 +42,17 @@ from torchtitan_ascend.models.kimi_k3_1.model import (
     KimiK31Model,
     KimiK31TransformerBlock,
 )
-from torchtitan_ascend.recipes.kimi_k3 import npu_changes
+
+from torchtitan_ascend_recipes.models.kimi_k3 import npu_changes
 
 
 def npu_fusion_kimik31(config: Trainer.Config) -> None:
     """Apply the Kimi K3.1 attention, normalization, MLP, and vision fusions."""
-    from torchtitan_ascend.overrides.common.activation.situglu import (
-        npu_situ_glu,
-    )
+    from torchtitan_ascend.overrides.common.activation.situglu import npu_situ_glu
     from torchtitan_ascend.overrides.common.linear.grouped_linear import (
         npu_grouped_linear,
     )
-    from torchtitan_ascend.overrides.common.norm import (
-        npu_gated_rmsnorm,
-        npu_rmsnorm,
-    )
+    from torchtitan_ascend.overrides.common.norm import npu_gated_rmsnorm, npu_rmsnorm
     from torchtitan_ascend.overrides.kimi_k3.attn_res import npu_attn_res
     from torchtitan_ascend.overrides.kimi_k3.packed_vision_attention import (
         npu_packed_vision_attention,
@@ -83,7 +79,9 @@ def npu_fusion_kimik31(config: Trainer.Config) -> None:
         override_target(npu_lightning_indexer),
         override_target(npu_lig_kl),
     ]
-    config.model.vision_encoder = npu_packed_vision_attention(config.model.vision_encoder)
+    config.model.vision_encoder = npu_packed_vision_attention(
+        config.model.vision_encoder
+    )
     enable_vision_rotary_mul()
 
 

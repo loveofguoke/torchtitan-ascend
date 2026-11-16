@@ -8,7 +8,7 @@ Kimi K3.1 使用 Kimi Delta Attention（KDA）和 DeepSeek Sparse Attention（DS
 
 | 模型规格 / flavor | 模型规模 | 文本层 / 注意力 | 默认上下文 | MODULE | CONFIG | 默认数据 |
 |---|---|---|---|---|---|---|
-| `debug` | 7168 维，64 个路由专家 | 8 层，6 层 KDA、2 层 DSA，96 头 | 16384 tokens | `torchtitan_ascend.recipes.kimi_k3_1` | `kimi_k3_1_reduced_npu` | `cc12m-test`（样本 packing） |
+| `debug` | 7168 维，64 个路由专家 | 8 层，6 层 KDA、2 层 DSA，96 头 | 16384 tokens | `torchtitan_ascend_recipes.models.kimi_k3_1` | `kimi_k3_1_reduced_npu` | `cc12m-test`（样本 packing） |
 | `Kimi-K3.1-Pro` | 完整 Pro 结构 | 93 层，69 层 KDA、24 层 DSA，96 头 | 2048 tokens | 同上 | `kimi_k3_1_pro_npu` | `cc12m` |
 
 两条配方每个 token 选择 16 个专家，词表大小为 163840，视觉编码器为 27 层。Pro 配方包含 896 个路由专家，模型结构以发布配置为准。 [Kimi K3.1 Pro 配置](https://huggingface.co/moonshotai/Kimi-K3.1-Pro/blob/main/config.json)
@@ -46,7 +46,7 @@ debug 配方使用 TorchTitan 的 `tests/assets/cc12m_test`，默认启用样本
 
 ```bash
 ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NGPU=8 \
-    ENTRYPOINT=torchtitan_ascend.train MODULE=torchtitan_ascend.recipes.kimi_k3_1 \
+    ENTRYPOINT=torchtitan_ascend.train MODULE=torchtitan_ascend_recipes.models.kimi_k3_1 \
     CONFIG=kimi_k3_1_reduced_npu ./run_train.sh
 ```
 
@@ -54,7 +54,7 @@ ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NGPU=8 \
 
 ### 5.2 Pro 配方
 
-`kimi_k3_1_pro_npu` 可在自定义 Python 配方中设置 `seq_len` 和 `parallelism`，保持 TP=CP=1。完整 Pro 训练、长上下文和官方量化权重加载待验证。 [配方定义](../../torchtitan_ascend/recipes/kimi_k3_1.py)
+`kimi_k3_1_pro_npu` 可在自定义 Python 配方中设置 `seq_len` 和 `parallelism`，保持 TP=CP=1。完整 Pro 训练、长上下文和官方量化权重加载待验证。 [配方定义](../../torchtitan_ascend_recipes/models/kimi_k3_1.py)
 
 ## 6. 精度验证
 

@@ -29,7 +29,7 @@ def _train(directory: Path) -> None:
     from torchtitan.components.checkpointer import CheckpointManager
     from torchtitan.observability.logging import init_logger
 
-    from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu
+    from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu
 
     torch.npu.set_device(int(os.environ["LOCAL_RANK"]))
     init_logger()

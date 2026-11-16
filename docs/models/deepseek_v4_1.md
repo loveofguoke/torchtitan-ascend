@@ -6,7 +6,7 @@
 
 ## 训练配置
 
-配置模块：`torchtitan_ascend.recipes.deepseek_v4_1`。
+配置模块：`torchtitan_ascend_recipes.models.deepseek_v4_1`。
 
 | CONFIG | 模型 | 数据 |
 |---|---|---|
@@ -27,7 +27,7 @@ Debug 配方使用上游自带 tokenizer 和 C4 测试数据，无需下载。
 ```bash
 cd torchtitan
 ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.deepseek_v4_1 \
+    MODULE=torchtitan_ascend_recipes.models.deepseek_v4_1 \
     CONFIG=deepseek_v4_1_debugmodel_npu \
     ./run_train.sh
 ```

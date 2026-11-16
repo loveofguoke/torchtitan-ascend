@@ -77,6 +77,7 @@ pre-commit run --all-files
 
 - 复用 TorchTitan 的模型、配置、训练入口和资源下载工具；必要差异通过合适的扩展接口或小范围继承实现，保留上游生命周期，不复制独立 Trainer、Engine 或配置解析器。外部并行库不能接管训练流程。
 - NPU override 默认执行 NPU 实现，不增加隐式 CPU fallback 或生产 eager 参考路径；测试数值参考、显式 CPU offload 和关闭图执行不属于此类 fallback。
+- 模型训练配方和共享配置放在 `torchtitan_ascend_recipes/models/`，可复用的测试专用配置按需放在 `torchtitan_ascend_recipes/tests/models/`；按用途而非验证状态分类，单个集成测试专用配置随测试定义维护。
 - recipe 只组合自己的配置；父模块 override 负责其接管子树的组合，不依赖调用者隐藏的顺序。改写外部全局符号按运行时补丁判断，不因位于 override 或临时上下文中而豁免。
 - 通用底层 kernel 优先贡献对应算子库。本仓可依赖 Ascend 算子库或外部组件，通过上游 override 或正式扩展接口接入，不把其设备实现加入另一套训练框架。
 - 上游尚未支持的模型遵循所选 TorchTitan 版本的适配规范，暂存于 `torchtitan_ascend/models/` 并提交上游 PR；进入所用上游基线后复用上游实现，保留必要 Ascend 适配。

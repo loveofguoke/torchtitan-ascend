@@ -10,7 +10,9 @@ from torchtitan.models.common.attention import VarlenAttentionMetadata
 
 from torchtitan_ascend.models.kimi_k3_1.dsa import IndexerFeatures
 from torchtitan_ascend.overrides.kimi_k3_1.lig_kl import npu_lig_kl
-from torchtitan_ascend.recipes.kimi_k3_1 import kimi_k3_1_multimodal_debugmodel_npu
+from torchtitan_ascend_recipes.models.kimi_k3_1 import (
+    kimi_k3_1_multimodal_debugmodel_npu,
+)
 
 
 def _debug_lig_config(num_heads: int):

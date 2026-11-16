@@ -12,12 +12,13 @@
 torchtitan_ascend/
 ├── train.py       # 初始化后调用上游训练入口
 ├── _setup.py      # 显式安装后端注册与获准的运行时补丁
-├── recipes/       # 复用上游配方，组合 Ascend 配置与实现选择
 ├── config/        # 辅助生成 override 目标与启用配置
 ├── overrides/     # NPU 模块与训练、并行扩展接口的适配
 ├── models/        # 上游基线尚未提供的模型语义与必要模型扩展
 ├── device.py      # 统一获取设备型号、缓存和检查硬件要求
 └── patches/       # 后端注册与受限的运行时补丁
+torchtitan_ascend_recipes/
+└── models/        # 模型训练配方与共享配置，组合上游组件和 Ascend 实现
 fixes/             # 按维护策略保存依赖源码补丁
 tests/             # 配置、算子、模型及训练集成验证
 ```

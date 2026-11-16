@@ -32,7 +32,7 @@
 
 ```bash
 ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.qwen3 CONFIG=qwen3_debugmodel_npu \
+    MODULE=torchtitan_ascend_recipes.models.qwen3 CONFIG=qwen3_debugmodel_npu \
     ./run_train.sh
 ```
 
@@ -95,22 +95,14 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 
 ## 模型与配方
 
-| 模型 | 现有配方 | 数据类型 | 额外依赖 |
-|---|---|---|---|
-| [Qwen3](docs/models/qwen3.md) | debug | 文本 | 基础环境 |
-| [Qwen3.5](docs/models/qwen3_5.md) | debug、0.8B | 文本 | fla-npu 算子包 |
-| [Kimi K3](docs/models/kimi_k3.md) | debug | 图文 | fla-npu 算子包 |
-| [Kimi K3.1](docs/models/kimi_k3_1.md) | debug、Pro | 图文 | fla-npu 算子包 |
-| [DeepSeek V4.1](docs/models/deepseek_v4_1.md) | debug | 文本 | 基础环境 |
-
-具体运行条件、限制与验证证据见对应模型文档及公开评审记录。现有配方不代表完整训练或所有并行组合已完成验证；正式支持状态遵循[维护策略](docs/maintenance.md#2-基线与支持状态)。
+完整列表见[模型与配方索引](docs/models/README.md)，包含模型文档、实现来源、配方源码和用途。具体运行条件、限制与验证证据见对应模型文档及公开评审记录；现有配方不代表完整训练或所有并行组合已完成验证。
 
 ## 文档导航
 
 **使用与验证**
 
 - [安装指南](INSTALL.md)：环境、依赖与最小运行验证。
-- [模型与配方](#模型与配方)：模型依赖、数据准备与训练配置。
+- [模型与配方](docs/models/README.md)：模型依赖、数据准备与训练配置。
 - [性能采集](docs/profiling.md)：性能采集与内存快照。
 - [测试入口](CONTRIBUTING.md#现有测试入口) · [CI 镜像与用例运行](ci/OVERVIEW.zh.md)：检查前提、执行方式与覆盖范围。
 

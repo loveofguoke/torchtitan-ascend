@@ -8,11 +8,11 @@ Kimi K3 使用 Kimi Delta Attention（KDA）与 Multi-head Latent Attention（ML
 
 | 模型规格 / flavor | 参数量 / 激活参数量 | 类型 | 上下文长度 / 输入尺寸 | MODULE | CONFIG | 默认数据 |
 |---|---|---|---|---|---|---|
-| `debugmodel` | 约 26.88M / 18.34M，含视觉编码器 | MoE，8 专家、top-2 | 默认 2048 tokens，图像最多 256 个 token | `torchtitan_ascend.recipes.kimi_k3` | `kimi_k3_debugmodel_npu` | 内置 CC-12m 测试数据 |
-| `7b` 基线 | 约 7.466B / 3.471B，含视觉编码器 | MoE，32 专家、top-2、2 个共享专家 | 同上 | `torchtitan_ascend.recipes.kimi_k3` | `kimi_k3_7b_npu` | 同上 |
-| `7b` MoonEP | 与 7B 基线相同 | 相同模型，使用 MoonEP 专家 | 同上 | `torchtitan_ascend.recipes.kimi_k3` | `kimi_k3_7b_moonep` | 同上 |
+| `debugmodel` | 约 26.88M / 18.34M，含视觉编码器 | MoE，8 专家、top-2 | 默认 2048 tokens，图像最多 256 个 token | `torchtitan_ascend_recipes.models.kimi_k3` | `kimi_k3_debugmodel_npu` | 内置 CC-12m 测试数据 |
+| `7b` 基线 | 约 7.466B / 3.471B，含视觉编码器 | MoE，32 专家、top-2、2 个共享专家 | 同上 | `torchtitan_ascend_recipes.models.kimi_k3` | `kimi_k3_7b_npu` | 同上 |
+| `7b` MoonEP | 与 7B 基线相同 | 相同模型，使用 MoonEP 专家 | 同上 | `torchtitan_ascend_recipes.models.kimi_k3` | `kimi_k3_7b_moonep` | 同上 |
 
-7B 为本仓自定义的测试规格，具体参数见 [CONFIG 设置](../../torchtitan_ascend/recipes/kimi_k3.py)。
+7B 为本仓自定义的测试规格，具体参数见 [CONFIG 设置](../../torchtitan_ascend_recipes/models/kimi_k3.py)。
 
 ### 1.2 特性支持
 
@@ -94,7 +94,7 @@ export TORCHNPU_PRECOMPILE_THREADS=1
 ```bash
 cd "$TORCHTITAN_SRC"
 ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.kimi_k3 CONFIG=kimi_k3_debugmodel_npu \
+    MODULE=torchtitan_ascend_recipes.models.kimi_k3 CONFIG=kimi_k3_debugmodel_npu \
     ./run_train.sh
 ```
 
@@ -111,7 +111,7 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 构建带有以下并行配置的配方，修改命令配置 `MODULE` 和 `CONFIG` 以指向该配方。
 
 ```python
-from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu
+from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu
 
 
 def train_config():
@@ -163,7 +163,7 @@ ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NGPU=8 \
 cd "$TORCHTITAN_SRC"
 ASCEND_RT_VISIBLE_DEVICES=0,1 NGPU=2 \
     ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.kimi_k3 \
+    MODULE=torchtitan_ascend_recipes.models.kimi_k3 \
     CONFIG=kimi_k3_7b_moonep \
     ./run_train.sh
 ```
@@ -173,7 +173,7 @@ ASCEND_RT_VISIBLE_DEVICES=0,1 NGPU=2 \
 构建带有 `apply_kimi_cp` 的配方，修改命令配置 `MODULE` 和 `CONFIG` 以指向该配方。函数默认采用 Ulysses MLA 和 Ulysses KDA。
 
 ```python
-from torchtitan_ascend.recipes.kimi_k3 import apply_kimi_cp, kimi_k3_debugmodel_npu
+from torchtitan_ascend_recipes.models.kimi_k3 import apply_kimi_cp, kimi_k3_debugmodel_npu
 
 
 def debug_cp2():
@@ -189,7 +189,7 @@ def debug_cp2():
 修改运行配置为 `CONFIG=debug_fusion`。
 
 ```python
-from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu, npu_fusion
+from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu, npu_fusion
 
 
 def debug_fusion(attn_backend="varlen"):
@@ -204,7 +204,7 @@ def debug_fusion(attn_backend="varlen"):
 
 ```python
 from torchtitan.config.parallelism import ParallelismConfig
-from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu
+from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu
 
 
 def debug_ep8():

@@ -23,7 +23,7 @@ RFC 提案在社区创建标题以 `[RFC]` 开头的 issue，说明背景、方�
 
 ## 2. 开发改动
 
-在 GitCode fork 仓库并将自己的 fork 克隆到本地的 `torchtitan-ascend/` 目录；已有仓库写入权限时可直接使用本仓。当前 Ascend 重构实现的贡献以 `refactor/npu-override` 为目标分支，从该分支创建个人开发分支；相关 issue 指定其他目标时以该说明为准，只修改本次贡献涉及的内容。
+在 GitCode fork 仓库并将自己的 fork 克隆到本地的 `torchtitan-ascend/` 目录；已有仓库写入权限时可直接使用本仓。贡献默认以 `main` 为目标分支，从该分支创建个人开发分支；相关 issue 指定其他目标时以该说明为准，只修改本次贡献涉及的内容。
 
 进入克隆后的仓库根目录，设置本仓路径：
 
@@ -125,7 +125,8 @@ ASCEND_RT_VISIBLE_DEVICES=0 OMP_NUM_THREADS=4 \
 
 | 内容 | 保存位置与说明 |
 |---|---|
-| 模型用法与支持范围 | 说明依赖、数据、配置与支持范围，保存为 `docs/models/<model>.md` |
+| 模型训练配方与共享配置 | 保存为 `torchtitan_ascend_recipes/models/<model>.py`；测试专用配置按实际需要放在 `torchtitan_ascend_recipes/tests/models/`，单个集成测试专用配置随测试定义维护 |
+| 模型用法与支持范围 | 保存为 `docs/models/<model>.md`，说明依赖、数据、配置与支持范围，并更新[模型索引](docs/models/README.md) |
 | 特性用法与支持范围 | 说明用法、限制与支持范围，保存为 `docs/features/<feature>.md` |
 | 验证证据 | 按[验收规则](docs/maintenance.md#5-验收规则)记录；可记录在 issue、PR 或可追溯报告中，不强制入仓 |
 | 重要设计与策略提案 | 在社区创建 RFC issue，记录方案、讨论与决议，关联实现或文档 PR |

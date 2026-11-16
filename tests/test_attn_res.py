@@ -3,9 +3,9 @@
 
 import pytest
 import torch
+from torch.testing import assert_close
 
 import torchtitan_ascend.overrides.kimi_k3.attn_res as MODULE
-from torch.testing import assert_close
 
 
 @pytest.mark.parametrize("partial", [False, True])
@@ -104,7 +104,11 @@ def test_attn_res_npu_matches_reference(dim, partial):
 
 def test_recipe_registers_residual_override_without_rebinding(monkeypatch):
     from torchtitan.models.kimi_k2_7 import vision_encoder
-    from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu, npu_fusion
+
+    from torchtitan_ascend_recipes.models.kimi_k3 import (
+        kimi_k3_debugmodel_npu,
+        npu_fusion,
+    )
 
     monkeypatch.setattr(vision_encoder, "ComplexRoPE", vision_encoder.ComplexRoPE)
     original = MODULE.AttentionResidual.__call__

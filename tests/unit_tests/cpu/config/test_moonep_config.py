@@ -79,7 +79,10 @@ def test_parallel_recipe_composition(tp, cp, replicate, enable_sp, schedule):
     from torchtitan.models.common.attention.kda import KDA
 
     from torchtitan_ascend.overrides.moonep.experts import MoonEPRoutedExperts
-    from torchtitan_ascend.recipes.kimi_k3 import apply_kimi_cp, kimi_k3_7b_moonep
+    from torchtitan_ascend_recipes.models.kimi_k3 import (
+        apply_kimi_cp,
+        kimi_k3_7b_moonep,
+    )
 
     config = kimi_k3_7b_moonep(
         parallelism=ParallelismConfig(
@@ -125,7 +128,7 @@ def test_parallel_recipe_composition(tp, cp, replicate, enable_sp, schedule):
 
 
 def test_tp_distmuon_is_rejected():
-    from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_7b_moonep
+    from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_7b_moonep
 
     config = kimi_k3_7b_moonep(
         parallelism=ParallelismConfig(
@@ -186,7 +189,7 @@ def test_virtual_pipeline_splits_keep_experts_in_every_stage(virtual_stages_per_
     )
     from torchtitan.models.common.moe import RoutedExperts
 
-    from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu
+    from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu
 
     model = kimi_k3_debugmodel_npu().model
     num_stages = 2 * virtual_stages_per_rank

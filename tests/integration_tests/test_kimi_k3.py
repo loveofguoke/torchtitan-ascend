@@ -138,7 +138,7 @@ def export_metrics(directory: Path) -> Path:
 
 def precision_recipe():
     """Keep the product recipe; fix only the twenty-step test and random seeds."""
-    from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu
+    from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu
 
     config = kimi_k3_debugmodel_npu()
     config.training.steps = STEPS

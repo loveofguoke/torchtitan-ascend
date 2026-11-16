@@ -52,9 +52,7 @@ def npu_changes(config: Trainer.Config) -> None:
 
 def npu_fusion(config: Trainer.Config) -> None:
     """Apply Ascend fused operators."""
-    from torchtitan_ascend.overrides.common.activation.situglu import (
-        npu_situ_glu,
-    )
+    from torchtitan_ascend.overrides.common.activation.situglu import npu_situ_glu
     from torchtitan_ascend.overrides.common.attention.fusion_attention import (
         npu_fusion_attention,
     )

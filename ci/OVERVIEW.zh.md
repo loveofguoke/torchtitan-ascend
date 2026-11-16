@@ -11,7 +11,7 @@
 
 构建入口为 `ci/build.sh`，Dockerfile 为 `ci/Dockerfile`，默认架构为 `linux/arm64`。镜像将 TorchTitan 安装到 `/opt/torchtitan`，在 `/opt/torchtitan-ascend` 预装本仓及依赖，作为基础环境；测试在 `/opt/torchtitan` 下执行。
 
-构建时默认从[官方仓库](https://gitcode.com/Ascend/torchtitan-ascend)的 `refactor/npu-override` 分支准备基础环境。镜像可重复使用；每次测试使用流水线检出的待测代码、脚本和清单。
+构建时默认从[官方仓库](https://gitcode.com/Ascend/torchtitan-ascend)的 `main` 分支准备基础环境。镜像可重复使用；每次测试使用流水线检出的待测代码、脚本和清单。
 
 | 组件 | 版本 |
 | ------ | ------ |
@@ -30,7 +30,7 @@ A2 依赖的固定提交和安装步骤见 [install.sh](install.sh)。
 | 构建变量 | 用途 | 默认值 |
 | ------ | ------ | ------ |
 | `ASCEND_REPO` | 本仓的远端 HTTPS 克隆地址 | `https://gitcode.com/Ascend/torchtitan-ascend.git` |
-| `ASCEND_BRANCH` | 克隆源码使用的分支 | `refactor/npu-override` |
+| `ASCEND_BRANCH` | 克隆源码使用的分支 | `main` |
 | `MAX_JOBS` | 源码编译并行度，按主机内存调整 | `32` |
 | `CORPORATE_CA_FILE` | 企业 HTTPS 网关的 PEM 格式 CA 证书路径 | 自动查找宿主机证书 |
 
