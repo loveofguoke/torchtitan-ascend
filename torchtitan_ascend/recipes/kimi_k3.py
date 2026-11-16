@@ -35,7 +35,7 @@ _GATED_RMSNORM_REGION = "gated_rmsnorm"
 
 def npu_changes(config: Trainer.Config) -> None:
     """Apply Ascend KDA kernels and runtime settings."""
-    from torchtitan_ascend.overrides.kda import npu_kda
+    from torchtitan_ascend.overrides.common.attention.kda import npu_kda
 
     config.model.local_compile_regions = [
         region
@@ -52,22 +52,26 @@ def npu_changes(config: Trainer.Config) -> None:
 
 def npu_fusion(config: Trainer.Config) -> None:
     """Apply Ascend fused operators."""
-    from torchtitan_ascend.overrides.attn_res import triton_attn_res
-    from torchtitan_ascend.overrides.fusion_attention import ascendc_fusion_attention
-    from torchtitan_ascend.overrides.rmsnorm import ascendc_rmsnorm
-    from torchtitan_ascend.overrides.rotary_mul import enable_ascendc_rotary_mul
-    from torchtitan_ascend.overrides.situ_glu import ascendc_situ_glu
+    from torchtitan_ascend.overrides.common.activation.situglu import (
+        npu_situ_glu,
+    )
+    from torchtitan_ascend.overrides.common.attention.fusion_attention import (
+        npu_fusion_attention,
+    )
+    from torchtitan_ascend.overrides.common.norm import npu_rmsnorm
+    from torchtitan_ascend.overrides.kimi_k3.attn_res import npu_attn_res
+    from torchtitan_ascend.overrides.rotary_mul import enable_vision_rotary_mul
 
     # Apply child activations before a routed-expert override can claim them.
-    activation_target = override_target(ascendc_situ_glu)
+    activation_target = override_target(npu_situ_glu)
     apply_overrides(OverrideConfig(imports=[activation_target]), config)
     config.override.imports = [
         *config.override.imports,
-        override_target(ascendc_fusion_attention),
-        override_target(ascendc_rmsnorm),
-        override_target(triton_attn_res),
+        override_target(npu_fusion_attention),
+        override_target(npu_rmsnorm),
+        override_target(npu_attn_res),
     ]
-    enable_ascendc_rotary_mul()
+    enable_vision_rotary_mul()
 
 
 def apply_kimi_cp(
@@ -77,7 +81,7 @@ def apply_kimi_cp(
     mla_cp_backend: Literal["ulysses", "allgather_kv"] = "ulysses",
 ) -> Trainer.Config:
     """Return a transformed copy using Ulysses KDA and the selected MLA backend."""
-    from torchtitan_ascend.overrides.kda_ulysses import npu_cp_kda
+    from torchtitan_ascend.overrides.common.attention.ulysses_cp_kda import npu_cp_kda
 
     if kda_cp_backend != "ulysses":
         raise ValueError(f"Unknown Ascend KDA CP backend: {kda_cp_backend}")

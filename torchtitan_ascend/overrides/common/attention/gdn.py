@@ -83,7 +83,7 @@ class _ChunkGDN(torch.autograd.Function):
         return dq, dk, dv, dg, dbeta, None
 
 
-class FlaGDNKernel(GDNKernel):
+class AscendGDNKernel(GDNKernel):
     @dataclass(kw_only=True, slots=True)
     class Config(GDNKernel.Config):
         pass
@@ -102,7 +102,7 @@ class FlaGDNKernel(GDNKernel):
         return _ChunkGDN.apply(*tensors, offsets).squeeze(0)
 
 
-class FlaInnerGDN(InnerGDN):
+class AscendInnerGDN(InnerGDN):
     kernel: torch.nn.Module
 
     @dataclass(kw_only=True, slots=True)
@@ -170,7 +170,7 @@ class FlaInnerGDN(InnerGDN):
     exact=True,
     description="GDN training with fla-npu AscendC operators",
 )
-def npu_gated_delta_net(cfg: InnerGDN.Config) -> FlaInnerGDN.Config:
-    new = derive(cfg, FlaInnerGDN.Config)
-    new.kernel = derive(cfg.kernel, FlaGDNKernel.Config)
+def npu_gated_delta_net(cfg: InnerGDN.Config) -> AscendInnerGDN.Config:
+    new = derive(cfg, AscendInnerGDN.Config)
+    new.kernel = derive(cfg.kernel, AscendGDNKernel.Config)
     return new

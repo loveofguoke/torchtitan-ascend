@@ -28,7 +28,7 @@ from torchtitan.models.common.attention.cp_linear_attention import (
 )
 from torchtitan.models.common.attention.gdn import GDN, InnerGDN
 
-from torchtitan_ascend.overrides.gdn import npu_gated_delta_net
+from torchtitan_ascend.overrides.common.attention.gdn import npu_gated_delta_net
 
 # Tensor shape suffixes: B batch, L seq len, H heads, K key head dim,
 # V value head dim.

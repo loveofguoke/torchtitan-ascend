@@ -199,7 +199,7 @@ class MegaMoeRoutedExperts(Module):
     exact=True,
     description="Hyper MegaMoE dispatch, expert compute and combine with native weights",
 )
-def hyper_megamoe(
+def npu_megamoe(
     cfg: RoutedExperts.Config, *, dispatch_mode: Literal["push", "pull"] = "push"
 ) -> MegaMoeRoutedExperts.Config:
     """Keep weight configs/sharding; reject unsupported expert math explicitly."""

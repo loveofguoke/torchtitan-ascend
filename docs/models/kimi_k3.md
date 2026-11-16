@@ -215,5 +215,5 @@ def debug_ep8():
 
 在 `./run_train.sh` 后追加所选实现的参数。
 
-- 融合 permute/unpermute 的 all-to-all dispatcher 使用 `--override torchtitan_ascend.overrides.token_dispatcher.npu_token_dispatcher`。
-- MC2 routed experts 使用 `--override torchtitan_ascend.overrides.mc2_routed_experts.npu_mc2_routed_experts`。
+- 融合 permute/unpermute 的 all-to-all dispatcher 使用 `--override torchtitan_ascend.overrides.common.moe.token_dispatcher.npu_token_dispatcher`。
+- MC2 routed experts 使用 `--override torchtitan_ascend.overrides.common.moe.mc2_routed_experts.npu_mc2_routed_experts`。

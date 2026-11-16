@@ -14,8 +14,12 @@ from torchtitan.models.common.linear import GroupedLinear
 from torchtitan.models.common.moe import RoutedExperts
 from torchtitan.models.common.moe.token_dispatcher import AllToAllTokenDispatcher
 
-from torchtitan_ascend.overrides.mc2_routed_experts import npu_mc2_routed_experts
-from torchtitan_ascend.overrides.token_dispatcher import npu_token_dispatcher
+from torchtitan_ascend.overrides.common.moe.mc2_routed_experts import (
+    npu_mc2_routed_experts,
+)
+from torchtitan_ascend.overrides.common.moe.token_dispatcher import (
+    npu_token_dispatcher,
+)
 
 pytestmark = pytest.mark.npu
 

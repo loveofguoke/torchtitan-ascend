@@ -191,7 +191,7 @@ class AscendDSALatentAttention(KimiDSALatentAttention):
     exact=True,
     description="Packed Ascend sparse flash attention and gradient",
 )
-def ascendc_sfa(
+def npu_sfa(
     config: KimiDSALatentAttention.Config,
 ) -> AscendDSALatentAttention.Config:
     return derive(config, AscendDSALatentAttention.Config)
@@ -278,7 +278,7 @@ class AscendLightningIndexer(Indexer):
     exact=True,
     description="Packed Ascend Lightning Indexer selection",
 )
-def ascendc_lightning_indexer(
+def npu_lightning_indexer(
     config: Indexer.Config,
 ) -> AscendLightningIndexer.Config:
     return derive(config, AscendLightningIndexer.Config)

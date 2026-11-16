@@ -26,7 +26,7 @@ from torchtitan_ascend.models.common.linear_attention import causal_conv1d
 __all__ = [
     "AscendInnerKDA",
     "AscendKDAKernel",
-    "NpuChunkKDAFunction",
+    "AscendChunkKDAFunction",
     "npu_kda",
 ]
 
@@ -47,7 +47,7 @@ def _from_ntd(x):
     return x.transpose(0, 1).unsqueeze(0).contiguous()
 
 
-class NpuChunkKDAFunction(torch.autograd.Function):
+class AscendChunkKDAFunction(torch.autograd.Function):
     """Fused KDA forward/backward with Q/K L2Norm and beta sigmoid.
 
     Backward supports head dimension 128 and consumes packed NTD intermediates.
@@ -266,10 +266,10 @@ class NpuChunkKDAFunction(torch.autograd.Function):
 
 # KDA runs on rank-local heads inside InnerKDA's local SPMD region.
 # Register its autograd function for debug.spmd_typechecking.
-spmd.register_local_autograd_function(NpuChunkKDAFunction)
+spmd.register_local_autograd_function(AscendChunkKDAFunction)
 
 
-def npu_chunk_kda(
+def chunk_kda(
     q,
     k,
     v,
@@ -337,7 +337,7 @@ def npu_chunk_kda(
     ]
     # The backend derives the canonical sequence-major chunk table;
     # let it select the ordering by passing None.
-    o, final_state = NpuChunkKDAFunction.apply(
+    o, final_state = AscendChunkKDAFunction.apply(
         q,
         k,
         v,
@@ -387,7 +387,7 @@ class AscendKDAKernel(KDAKernel):
         cu_seqlens: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Run KDA with the gate, Q/K normalization, and beta sigmoid fused."""
-        output_1THV, _ = npu_chunk_kda(
+        output_1THV, _ = chunk_kda(
             q_1THK,
             k_1THK,
             v_1THV,

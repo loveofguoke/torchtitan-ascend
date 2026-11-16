@@ -11,7 +11,10 @@ from torchtitan.distributed.spmd_types import spmd_mesh_group
 from torchtitan.models.common.attention.cp_kda import ContextParallelInnerKDA
 from torchtitan.models.common.attention.kda import InnerKDA
 
-from torchtitan_ascend.overrides.kda import AscendInnerKDA, AscendKDAKernel
+from torchtitan_ascend.overrides.common.attention.kda import (
+    AscendInnerKDA,
+    AscendKDAKernel,
+)
 
 
 class AscendUlyssesInnerKDA(ContextParallelInnerKDA):

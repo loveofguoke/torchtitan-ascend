@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 import torch.nn.functional as F
-import torchtitan_ascend.overrides.fusion_attention as MODULE
+import torchtitan_ascend.overrides.common.attention.fusion_attention as MODULE
 from torch.nn.attention.flex_attention import create_block_mask, create_mask
 from torch.testing import assert_close
 
@@ -83,7 +83,7 @@ def test_cpu_fallback_with_score_mod_and_lse(monkeypatch):
 
     monkeypatch.setattr(MODULE.FlexInnerAttention, "_compiled_flex_attn", cpu_attention)
     base = MODULE.FlexInnerAttention(MODULE.FlexInnerAttention.Config())
-    fused = MODULE.AscendCFlexInnerAttention(MODULE.AscendCFlexInnerAttention.Config())
+    fused = MODULE.AscendFlexInnerAttention(MODULE.AscendFlexInnerAttention.Config())
     metadata = create_block_mask(lambda b, h, q, k: q >= k, 1, None, 7, 7, device="cpu")
     inputs = [torch.randn(7, 2, 8, requires_grad=True) for _ in range(3)]
     kwargs = dict(

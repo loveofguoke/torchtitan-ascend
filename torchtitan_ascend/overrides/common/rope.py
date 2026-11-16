@@ -105,7 +105,7 @@ class AscendComplexRoPE(ComplexRoPE):
     exact=True,
     description="ComplexRoPE with a real-valued cache (torch_npu cannot index complex tensors)",
 )
-def real_cache_rope(cfg: ComplexRoPE.Config) -> AscendComplexRoPE.Config:
+def npu_real_cache_rope(cfg: ComplexRoPE.Config) -> AscendComplexRoPE.Config:
     return derive(cfg, AscendComplexRoPE.Config)
 
 

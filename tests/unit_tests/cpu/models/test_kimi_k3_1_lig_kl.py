@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from torchtitan.models.common.attention import VarlenAttentionMetadata
 
 from torchtitan_ascend.models.kimi_k3_1.dsa import IndexerFeatures
-from torchtitan_ascend.overrides.lig_kl import ascendc_lig_kl
+from torchtitan_ascend.overrides.kimi_k3_1.lig_kl import npu_lig_kl
 from torchtitan_ascend.recipes.kimi_k3_1 import kimi_k3_1_multimodal_debugmodel_npu
 
 
@@ -37,10 +37,10 @@ def _debug_lig_config(num_heads: int):
 def test_lig_kl_requires_unweighted_teacher():
     attention = _debug_lig_config(4)
     with pytest.raises(ValueError, match="unweighted"):
-        ascendc_lig_kl(
+        npu_lig_kl(
             replace(attention, aux_loss=replace(attention.aux_loss, mass_weighted=True))
         )
-    fused = ascendc_lig_kl(attention)
+    fused = npu_lig_kl(attention)
     assert fused.aux_loss.coeff == attention.aux_loss.coeff == 0.01
 
 
@@ -56,7 +56,7 @@ def test_lig_kl_loss_gradients_scaling_and_teacher_detach(heads, tokens, empty):
     torch.manual_seed(42)
     top_k, index_heads = 1024, 8
     config = _debug_lig_config(heads)
-    fused = ascendc_lig_kl(config).build().to("npu")
+    fused = npu_lig_kl(config).build().to("npu")
     q = torch.randn(tokens, heads, 576).bfloat16()
     k = torch.randn(tokens, 576).bfloat16()
     qi = (torch.randn(tokens, index_heads, 128) * 0.1).bfloat16().requires_grad_()

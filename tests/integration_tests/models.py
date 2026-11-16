@@ -61,7 +61,7 @@ from tests.integration_tests import IntegrationTestDefinition
 
 def _with_npu_gdn(config: Trainer.Config) -> None:
     from torchtitan_ascend.config import override_target
-    from torchtitan_ascend.overrides.gdn import npu_gated_delta_net
+    from torchtitan_ascend.overrides.common.attention.gdn import npu_gated_delta_net
 
     config.override.imports.append(override_target(npu_gated_delta_net))
     config.model.local_compile_regions = [

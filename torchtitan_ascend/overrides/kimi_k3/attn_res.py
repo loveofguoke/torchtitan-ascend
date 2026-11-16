@@ -19,8 +19,8 @@ from torchtitan_ascend.device import get_num_vector_cores, require_device
 __all__ = [
     "attention_residual",
     "TritonAttentionResidual",
-    "triton_attn_res",
-    "enable_triton_attn_res",
+    "npu_attn_res",
+    "attn_res_override_target",
 ]
 
 _eager_attention_residual = AttentionResidual(AttentionResidual.Config())
@@ -455,10 +455,10 @@ class TritonAttentionResidual(AttentionResidual):
     exact=True,
     description="Triton attention residual on Ascend",
 )
-def triton_attn_res(config):
+def npu_attn_res(config):
     return derive(config, TritonAttentionResidual.Config)
 
 
-def enable_triton_attn_res():
+def attn_res_override_target():
     """Return the override target for explicit activation in a training config."""
-    return f"{triton_attn_res.__module__}.{triton_attn_res.__name__}"
+    return f"{npu_attn_res.__module__}.{npu_attn_res.__name__}"

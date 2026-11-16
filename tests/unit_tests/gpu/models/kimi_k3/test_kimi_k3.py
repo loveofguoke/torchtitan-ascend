@@ -29,7 +29,7 @@ from torchtitan.models.kimi_k3.model import KimiK3Model
 from torchtitan.models.kimi_k3.moe import KimiLatentMoE
 from torchtitan.models.kimi_k3.state_dict_adapter import KimiK3StateDictAdapter
 
-from torchtitan_ascend.overrides.kda import AscendKDAKernel
+from torchtitan_ascend.overrides.common.attention.kda import AscendKDAKernel
 from torchtitan_recipes.tests.models.kimi_k3 import _dist_muon_optimizer
 
 
@@ -178,7 +178,9 @@ class TestKimiK3(unittest.TestCase):
         """DistMuon buckets reference the native routed W13 and W2 parameters."""
         model_config = _small_model_config()
         apply_overrides(
-            OverrideConfig(imports=["torchtitan_ascend.overrides.kda.npu_kda"]),
+            OverrideConfig(
+                imports=["torchtitan_ascend.overrides.common.attention.kda.npu_kda"]
+            ),
             model_config,
         )
         optimizer = _dist_muon_optimizer(
@@ -228,7 +230,9 @@ class TestKimiK3(unittest.TestCase):
     def test_flex_attention_mask(self):
         config = _small_model_config()
         apply_overrides(
-            OverrideConfig(imports=["torchtitan_ascend.overrides.kda.npu_kda"]),
+            OverrideConfig(
+                imports=["torchtitan_ascend.overrides.common.attention.kda.npu_kda"]
+            ),
             config,
         )
         model = config.build()
@@ -256,7 +260,9 @@ class TestKimiK3(unittest.TestCase):
     def test_padded_tail_is_one_kda_segment(self):
         config = _small_model_config()
         apply_overrides(
-            OverrideConfig(imports=["torchtitan_ascend.overrides.kda.npu_kda"]),
+            OverrideConfig(
+                imports=["torchtitan_ascend.overrides.common.attention.kda.npu_kda"]
+            ),
             config,
         )
         model = config.build()
@@ -360,7 +366,9 @@ class TestKimiK3(unittest.TestCase):
         torch.manual_seed(2)
         config = _small_model_config()
         apply_overrides(
-            OverrideConfig(imports=["torchtitan_ascend.overrides.kda.npu_kda"]),
+            OverrideConfig(
+                imports=["torchtitan_ascend.overrides.common.attention.kda.npu_kda"]
+            ),
             config,
         )
         model = config.build()

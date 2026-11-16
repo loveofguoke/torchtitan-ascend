@@ -28,7 +28,7 @@ from torchtitan.observability.metrics import MetricsProcessor
 from torchtitan.trainer import Trainer
 
 from torchtitan_ascend.config import override_target
-from torchtitan_ascend.overrides.gdn import npu_gated_delta_net
+from torchtitan_ascend.overrides.common.attention.gdn import npu_gated_delta_net
 
 
 def _text_config(flavor: str, *, hf_assets_path: str, dataset) -> Trainer.Config:

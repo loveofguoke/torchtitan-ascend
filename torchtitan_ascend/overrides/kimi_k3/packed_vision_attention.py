@@ -82,7 +82,7 @@ class AscendPackedKimiVisionEncoder(KimiK3VisionEncoder):
         return self.projector(_tpool_patch_merger(x, grids, self.merge_kernel_size))
 
 
-def packed_vision_fa(
+def npu_packed_vision_attention(
     config: KimiK3VisionEncoder.Config,
 ) -> AscendPackedKimiVisionEncoder.Config:
     attention = config.block.attn

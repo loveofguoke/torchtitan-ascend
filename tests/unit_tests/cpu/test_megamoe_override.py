@@ -19,9 +19,9 @@ from torchtitan.models.common.moe import RoutedExperts
 from torchtitan.models.common.moe.token_dispatcher import LocalTokenDispatcher
 from torchtitan_ascend.config.override_utils import add_override
 from torchtitan_ascend.models.deepseek_v4_1 import DeepSeekV41Model
-from torchtitan_ascend.overrides.hp_components.megamoe import (
+from torchtitan_ascend.overrides.hyper_parallel.megamoe import (
     _ExecutionGroup,
-    hyper_megamoe,
+    npu_megamoe,
     MegaMoeRoutedExperts,
 )
 from torchtitan_ascend.recipes.deepseek_v4_1 import deepseek_v4_1_debugmodel_npu
@@ -62,8 +62,8 @@ def source_config():
 
 class TestMegaMoeOverride(unittest.TestCase):
     def test_workspace_sharing_rejects_unconfigured_layers(self):
-        with patch("torchtitan_ascend.overrides.hp_components.megamoe.require_device"):
-            module = hyper_megamoe(source_config()).build()
+        with patch("torchtitan_ascend.overrides.hyper_parallel.megamoe.require_device"):
+            module = npu_megamoe(source_config()).build()
         group = _ExecutionGroup.register(module, SimpleNamespace())
         with self.assertRaisesRegex(RuntimeError, "Configure all MegaMoE"):
             group.prepare()
@@ -74,7 +74,7 @@ class TestMegaMoeOverride(unittest.TestCase):
             "torch.npu.init", side_effect=AssertionError("config initialized NPU")
         ):
             config = deepseek_v4_1_debugmodel_npu(ep=8)
-            add_override(config, hyper_megamoe)
+            add_override(config, npu_megamoe)
             replacements = apply_overrides(config.override, config)
         self.assertIs(type(config.model)._owner, DeepSeekV41Model)
         experts = [layer.feed_forward.routed_experts for layer in config.model.layers]
@@ -82,7 +82,7 @@ class TestMegaMoeOverride(unittest.TestCase):
         self.assertTrue(
             all(isinstance(c, MegaMoeRoutedExperts.Config) for c in experts)
         )
-        self.assertEqual(sum("hyper_megamoe" in line for line in replacements), 40)
+        self.assertEqual(sum("npu_megamoe" in line for line in replacements), 40)
         baseline = deepseek_v4_1_debugmodel_npu(ep=8)
         apply_overrides(baseline.override, baseline)
         self.assertIs(type(baseline.model)._owner, DeepSeekV41Model)
@@ -94,8 +94,8 @@ class TestMegaMoeOverride(unittest.TestCase):
         )
 
     def test_execution_group_collects_layers_without_model_hooks(self):
-        with patch("torchtitan_ascend.overrides.hp_components.megamoe.require_device"):
-            modules = [hyper_megamoe(source_config()).build() for _ in range(2)]
+        with patch("torchtitan_ascend.overrides.hyper_parallel.megamoe.require_device"):
+            modules = [npu_megamoe(source_config()).build() for _ in range(2)]
         context = SimpleNamespace()
         for module in modules:
             module._execution_group = _ExecutionGroup.register(module, context)
@@ -136,14 +136,14 @@ class TestMegaMoeOverride(unittest.TestCase):
         with patch("builtins.__import__", side_effect=without_hyper):
             baseline = deepseek_v4_1_debugmodel_npu()
             mega = deepseek_v4_1_debugmodel_npu(ep=8)
-            add_override(mega, hyper_megamoe)
+            add_override(mega, npu_megamoe)
             apply_overrides(mega.override, mega)
         self.assertIs(type(baseline.model)._owner, DeepSeekV41Model)
         self.assertIs(type(mega.model)._owner, DeepSeekV41Model)
 
     def test_close_is_idempotent_and_preserves_parameter_identity(self):
-        with patch("torchtitan_ascend.overrides.hp_components.megamoe.require_device"):
-            module = hyper_megamoe(source_config()).build()
+        with patch("torchtitan_ascend.overrides.hyper_parallel.megamoe.require_device"):
+            module = npu_megamoe(source_config()).build()
         parameters = dict(module.named_parameters())
         executor = ReferenceExecutor()
         module._executor = executor
@@ -160,12 +160,12 @@ class TestMegaMoeOverride(unittest.TestCase):
         config = source_config()
         projection = derive(config.w13, TransformedLinear.Config)
         with self.assertRaisesRegex(ValueError, "unmodified GroupedLinear"):
-            hyper_megamoe(replace(config, w13=projection))
+            npu_megamoe(replace(config, w13=projection))
 
     def test_weight_layout_and_gradients_keep_original_parameters(self):
         torch.manual_seed(7)
-        with patch("torchtitan_ascend.overrides.hp_components.megamoe.require_device"):
-            module = hyper_megamoe(source_config()).build()
+        with patch("torchtitan_ascend.overrides.hyper_parallel.megamoe.require_device"):
+            module = npu_megamoe(source_config()).build()
         module._executor = ReferenceExecutor()
         for parameter in module.parameters():
             torch.nn.init.normal_(parameter, std=0.1)
@@ -209,11 +209,11 @@ class TestMegaMoeOverride(unittest.TestCase):
     def test_unsupported_math_and_parallelism_fail_explicitly(self):
         config = source_config()
         with self.assertRaisesRegex(ValueError, "plain SwiGLU"):
-            hyper_megamoe(replace(config, activation_fn=Sigmoid.Config()))
+            npu_megamoe(replace(config, activation_fn=Sigmoid.Config()))
         with self.assertRaisesRegex(ValueError, "postprocessing"):
-            hyper_megamoe(replace(config, output_postprocess=config.w2))
-        with patch("torchtitan_ascend.overrides.hp_components.megamoe.require_device"):
-            module = hyper_megamoe(config).build()
+            npu_megamoe(replace(config, output_postprocess=config.w2))
+        with patch("torchtitan_ascend.overrides.hyper_parallel.megamoe.require_device"):
+            module = npu_megamoe(config).build()
         for tp, cp, pp, ep in [(2, 1, 1, 8), (1, 2, 1, 8), (1, 1, 2, 8), (1, 1, 1, 1)]:
             with self.subTest(tp=tp, cp=cp, pp=pp, ep=ep):
                 with self.assertRaisesRegex(ValueError, "TP=CP=PP=1 and EP>1"):

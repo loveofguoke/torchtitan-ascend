@@ -18,7 +18,7 @@ from torchtitan_ascend.models.kimi_k3_1.dsa import (
     IndexerFeatures,
     KimiDSALatentAttention,
 )
-from torchtitan_ascend.overrides.dsa import (
+from torchtitan_ascend.overrides.kimi_k3_1.dsa import (
     _local_sparse_indices,
     AscendDSALatentAttention,
 )
@@ -154,7 +154,7 @@ class AscendLIGAttention(AscendDSALatentAttention):
     exact=True,
     description="Packed SFA with fused indexer gradients and KL loss",
 )
-def ascendc_lig_kl(
+def npu_lig_kl(
     config: KimiDSALatentAttention.Config,
 ) -> AscendLIGAttention.Config:
     return derive(config, AscendLIGAttention.Config)

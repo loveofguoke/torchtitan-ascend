@@ -8,7 +8,7 @@ import torch
 from torchtitan.config import derive, override
 from torchtitan.models.common.linear import GroupedLinear
 
-from torchtitan_ascend.overrides.moonep.gmm import weight_grad
+from torchtitan_ascend.overrides.common.gmm import weight_grad
 
 
 def _rows_mm(rows, weight, offsets):
@@ -66,5 +66,5 @@ class AscendGroupedLinear(GroupedLinear):
     exact=True,
     description="AscendC grouped matmul for ordinary routed experts",
 )
-def ascendc_grouped_linear(config: GroupedLinear.Config) -> AscendGroupedLinear.Config:
+def npu_grouped_linear(config: GroupedLinear.Config) -> AscendGroupedLinear.Config:
     return derive(config, AscendGroupedLinear.Config)

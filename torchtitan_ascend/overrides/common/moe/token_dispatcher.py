@@ -21,7 +21,7 @@ from torchtitan.models.common.moe.token_dispatcher import (
     LocalDispatchMetadata,
 )
 
-from torchtitan_ascend.overrides.permute import permute, unpermute
+from torchtitan_ascend.overrides.common.moe.permute import permute, unpermute
 
 # T: input tokens, K: selected experts, D: hidden size, E: global experts,
 # R: received token copies, e: local experts, N: local token copies (T*K).

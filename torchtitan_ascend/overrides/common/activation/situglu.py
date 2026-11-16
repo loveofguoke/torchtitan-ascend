@@ -12,9 +12,9 @@ from torchtitan.config import derive, override
 from torchtitan.models.common.activation import SiTUGLU
 
 __all__ = [
-    "AscendCSiTUGLU",
+    "AscendSiTUGLU",
     "situ_glu",
-    "ascendc_situ_glu",
+    "npu_situ_glu",
 ]
 
 
@@ -66,7 +66,7 @@ def situ_glu(gate_up, beta, linear_beta):
     )
 
 
-class AscendCSiTUGLU(SiTUGLU):
+class AscendSiTUGLU(SiTUGLU):
     beta: float
     linear_beta: float | None
 
@@ -81,5 +81,5 @@ class AscendCSiTUGLU(SiTUGLU):
 
 
 @override(target=SiTUGLU.Config, exact=True, description="Ascend C SiTU-GLU")
-def ascendc_situ_glu(config):
-    return derive(config, AscendCSiTUGLU.Config)
+def npu_situ_glu(config):
+    return derive(config, AscendSiTUGLU.Config)

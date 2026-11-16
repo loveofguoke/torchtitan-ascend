@@ -57,8 +57,8 @@ def test_vision_dispatch(monkeypatch, inverse, with_key):
 
     monkeypatch.setattr(MODULE, "rotary_mul", rotary)
     monkeypatch.setattr(MODULE.vision_encoder, "ComplexRoPE", ComplexRoPE)
-    MODULE.enable_ascendc_rotary_mul()
-    MODULE.enable_ascendc_rotary_mul()
+    MODULE.enable_vision_rotary_mul()
+    MODULE.enable_vision_rotary_mul()
     query = torch.randn(7, 2, 8, requires_grad=True)
     key = torch.randn_like(query, requires_grad=True) if with_key else None
     cache = torch.polar(torch.ones(7, 1, 4), torch.randn(7, 1, 4))

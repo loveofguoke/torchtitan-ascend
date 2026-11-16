@@ -11,7 +11,9 @@ import torch
 import torch_remat as remat
 from torch import Tensor
 
-from .gmm import rows_mm, weight_grad
+from torchtitan_ascend.overrides.common.gmm import weight_grad
+
+from .gmm import rows_mm
 from .runtime import current_runtime
 
 

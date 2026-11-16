@@ -16,9 +16,9 @@ from torchtitan.config import derive, override
 from torchtitan.models.common.attention import FlexInnerAttention
 
 __all__ = [
-    "AscendCFlexInnerAttention",
+    "AscendFlexInnerAttention",
     "fusion_attention",
-    "ascendc_fusion_attention",
+    "npu_fusion_attention",
 ]
 
 # T = packed tokens, H = heads, K = query/key head dim, V = value head dim.
@@ -149,7 +149,7 @@ def fusion_attention(
     return out_1HTK.squeeze(0).transpose(0, 1)[..., :value_dim]
 
 
-class AscendCFlexInnerAttention(FlexInnerAttention):
+class AscendFlexInnerAttention(FlexInnerAttention):
     @dataclass(kw_only=True, slots=True)
     class Config(FlexInnerAttention.Config):
         pass
@@ -194,5 +194,5 @@ class AscendCFlexInnerAttention(FlexInnerAttention):
 @override(
     target=FlexInnerAttention.Config, exact=True, description="Ascend C attention"
 )
-def ascendc_fusion_attention(config):
-    return derive(config, AscendCFlexInnerAttention.Config)
+def npu_fusion_attention(config):
+    return derive(config, AscendFlexInnerAttention.Config)

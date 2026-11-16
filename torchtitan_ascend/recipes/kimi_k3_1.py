@@ -47,38 +47,44 @@ from torchtitan_ascend.recipes.kimi_k3 import npu_changes
 
 def npu_fusion_kimik31(config: Trainer.Config) -> None:
     """Apply the Kimi K3.1 attention, normalization, MLP, and vision fusions."""
-    from torchtitan_ascend.overrides.attn_res import triton_attn_res
-    from torchtitan_ascend.overrides.dsa import ascendc_lightning_indexer
-    from torchtitan_ascend.overrides.grouped_linear import ascendc_grouped_linear
-    from torchtitan_ascend.overrides.lig_kl import ascendc_lig_kl
-    from torchtitan_ascend.overrides.packed_vision_attention import packed_vision_fa
-    from torchtitan_ascend.overrides.rmsnorm import (
-        ascendc_gated_rmsnorm,
-        ascendc_rmsnorm,
+    from torchtitan_ascend.overrides.common.activation.situglu import (
+        npu_situ_glu,
     )
-    from torchtitan_ascend.overrides.rotary_mul import enable_ascendc_rotary_mul
-    from torchtitan_ascend.overrides.situ_glu import ascendc_situ_glu
+    from torchtitan_ascend.overrides.common.linear.grouped_linear import (
+        npu_grouped_linear,
+    )
+    from torchtitan_ascend.overrides.common.norm import (
+        npu_gated_rmsnorm,
+        npu_rmsnorm,
+    )
+    from torchtitan_ascend.overrides.kimi_k3.attn_res import npu_attn_res
+    from torchtitan_ascend.overrides.kimi_k3.packed_vision_attention import (
+        npu_packed_vision_attention,
+    )
+    from torchtitan_ascend.overrides.kimi_k3_1.dsa import npu_lightning_indexer
+    from torchtitan_ascend.overrides.kimi_k3_1.lig_kl import npu_lig_kl
+    from torchtitan_ascend.overrides.rotary_mul import enable_vision_rotary_mul
 
     # Apply child overrides before a routed-expert override claims their parent.
     apply_overrides(
         OverrideConfig(
             imports=[
-                override_target(ascendc_situ_glu),
-                override_target(ascendc_grouped_linear),
+                override_target(npu_situ_glu),
+                override_target(npu_grouped_linear),
             ]
         ),
         config,
     )
     config.override.imports = [
         *config.override.imports,
-        override_target(ascendc_rmsnorm),
-        override_target(ascendc_gated_rmsnorm),
-        override_target(triton_attn_res),
-        override_target(ascendc_lightning_indexer),
-        override_target(ascendc_lig_kl),
+        override_target(npu_rmsnorm),
+        override_target(npu_gated_rmsnorm),
+        override_target(npu_attn_res),
+        override_target(npu_lightning_indexer),
+        override_target(npu_lig_kl),
     ]
-    config.model.vision_encoder = packed_vision_fa(config.model.vision_encoder)
-    enable_ascendc_rotary_mul()
+    config.model.vision_encoder = npu_packed_vision_attention(config.model.vision_encoder)
+    enable_vision_rotary_mul()
 
 
 def kimi_k3_1_pro_npu(

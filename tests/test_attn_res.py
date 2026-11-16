@@ -4,7 +4,7 @@
 import pytest
 import torch
 
-import torchtitan_ascend.overrides.attn_res as MODULE
+import torchtitan_ascend.overrides.kimi_k3.attn_res as MODULE
 from torch.testing import assert_close
 
 
@@ -46,9 +46,9 @@ def test_attn_res_packing_and_gradients(monkeypatch, partial):
 
 def test_attn_res_override_preserves_config():
     source = MODULE.AttentionResidual.Config()
-    replacement = MODULE.triton_attn_res(source)
+    replacement = MODULE.npu_attn_res(source)
     assert isinstance(replacement, MODULE.TritonAttentionResidual.Config)
-    assert MODULE.enable_triton_attn_res().endswith(".triton_attn_res")
+    assert MODULE.attn_res_override_target().endswith(".npu_attn_res")
 
 
 @pytest.mark.npu
@@ -110,5 +110,5 @@ def test_recipe_registers_residual_override_without_rebinding(monkeypatch):
     original = MODULE.AttentionResidual.__call__
     config = kimi_k3_debugmodel_npu()
     npu_fusion(config)
-    assert MODULE.enable_triton_attn_res() in config.override.imports
+    assert MODULE.attn_res_override_target() in config.override.imports
     assert MODULE.AttentionResidual.__call__ is original

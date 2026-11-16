@@ -39,7 +39,7 @@ _FLEX_DISABLED = not (
 
 def npu_changes(config: Trainer.Config) -> None:
     from torchtitan_ascend.config import override_target
-    from torchtitan_ascend.overrides.kda import npu_kda
+    from torchtitan_ascend.overrides.common.attention.kda import npu_kda
 
     config.override.imports = [*config.override.imports, override_target(npu_kda)]
     config.model.local_compile_regions = [

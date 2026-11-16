@@ -13,11 +13,11 @@ from torchtitan.models.common.linear import GroupedLinear
 from torchtitan.models.common.moe import RoutedExperts
 from torchtitan.models.common.moe.token_dispatcher import AllToAllTokenDispatcher
 
-from torchtitan_ascend.overrides.gemm_mc2 import (
+from torchtitan_ascend.overrides.common.moe.mc2_gmm import (
     all2all_grouped_matmul,
     grouped_matmul_all2all,
 )
-from torchtitan_ascend.overrides.permute import permute, unpermute
+from torchtitan_ascend.overrides.common.moe.permute import permute, unpermute
 
 
 class AscendMC2RoutedExperts(RoutedExperts):
