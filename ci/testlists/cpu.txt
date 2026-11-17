@@ -465,9 +465,62 @@ tests/unit_tests/cpu/models/common/test_aux_loss.py::TestMicrobatchWiseLoadBalan
 tests/unit_tests/cpu/models/common/test_aux_loss.py::TestMicrobatchWiseLoadBalanceLoss::test_no_double_count_with_remat_checkpointing
 tests/unit_tests/cpu/models/common/test_aux_loss.py::TestMicrobatchWiseLoadBalanceLoss::test_value_and_gradient_match_reference
 
-# --- tests/unit_tests/cpu/models/common/test_dist_moe.py (31 cases) ---
+# --- tests/unit_tests/cpu/models/common/test_dist_moe.py (33 cases) ---
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_runtime_close_releases_context_and_module_bindings
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_runtime_selects_pp_activation_slot_from_forward_context
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_engine_builds_dist_moe_runtime_with_eager_pp_schedule
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_transform_rejects_specialized_routed_experts
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_transform_rejects_postprocess_without_native_translation
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_bf16_transform_preserves_parameter_layout
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_transform_propagates_clamped_swiglu_to_annex_config
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_transform_propagates_plain_swiglu_to_annex_config
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_transform_rejects_unsupported_source_activation
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_lora_dist_moe_loads_grouped_lora_state_with_identical_initialization
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_lora_dist_moe_weight_operands_match_independent_references
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_lora_dist_moe_weight_operands_backpropagate_only_to_adapters
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_dist_moe_lora_rejects_inplace_wgrad
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_dist_moe_lora_rejects_mxfp8_before_build
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_dist_moe_lora_dense_target_remains_legal_with_non_target_experts
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_runtime_passes_per_slot_capacity_to_annex
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_runtime_passes_inference_to_annex
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_mxfp8_transform_is_independent_and_uses_prepared_weights
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_dist_moe_transform_rejects_incompatible_transforms
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_forward_passes_native_postprocess_and_wgrad_policy
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_eager_postprocess_callback_preserves_module_hooks_and_gradients
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_inference_routes_padding_to_minus_one_at_the_call_size
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_training_drops_masked_routes_without_padding_the_call
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_callback_postprocess_zeroes_inputs_only_with_minus_one_routes
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_per_call_token_count_is_inference_only_and_bounded
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_batch_invariant_inference_pins_the_bf16_grouped_gemm_schedule
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_small_calls_stay_above_the_tiled_reduction_only_when_batch_invariant
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_runtime_config_rejects_invalid_values
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_runtime_config_requires_bfloat16_unsharded_parameters
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_dist_moe_bf16_recipes_use_varlen_and_replace_all_experts
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_eager_dist_moe_recipe_supports_cuda_graphs_with_pipeline_parallelism
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_dist_moe_mxfp8_recipes_quantize_dense_linears_and_lm_head
+tests/unit_tests/cpu/models/common/test_dist_moe.py::test_dist_moe_671b_recipe_topology
 
 # --- tests/unit_tests/cpu/models/common/test_moe.py (20 cases) ---
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_make_router_config_requires_score_func
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_token_choice_router_requires_score_func
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_round_robin_router_balances_assignments
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_routed_experts_use_configured_activation
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_routed_experts_own_postprocess_before_combine
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_token_choice_router_uses_normalization_epsilon
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_token_choice_router_uses_configured_score_functions
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_eval_forward_does_not_accumulate_tokens_per_expert
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_padding_is_excluded_from_counts_but_still_dispatched
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_moe_hands_the_routed_padding_mask_to_the_experts
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_router_masks_padding_only_for_aux_loss
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_router_validates_padding_mask
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_padding_mask_enters_moe_replicated_and_router_sharded
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_shared_expert_uses_runtime_sp_aware_output_projection
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_common_shared_expert_input_gather_is_owned_by_w13
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_explicit_moe_tp_transitions_with_ep_without_sp
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_routed_branch_rejects_tp_without_ep
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_expert_branch_layouts_before_moe_boundary
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_explicit_padding_mask_sharding_with_sp
+tests/unit_tests/cpu/models/common/test_moe.py::TestMoE::test_moe_without_ep_leaves_routed_weights_unsharded
 
 # --- tests/unit_tests/cpu/models/common/test_transformer_block.py (3 cases) ---
 tests/unit_tests/cpu/models/common/test_transformer_block.py::test_first_feed_forward_skips_moe
@@ -534,6 +587,10 @@ tests/unit_tests/cpu/models/flux/test_dataset_flux.py::TestFluxDataLoader::test_
 tests/unit_tests/cpu/models/flux/test_flux_inference.py::test_documented_inference_config_loads
 tests/unit_tests/cpu/models/flux/test_flux_inference.py::test_inference_runs_model_in_engine_context
 
+# --- tests/unit_tests/cpu/models/flux/test_flux_sharding.py (2 cases) ---
+tests/unit_tests/cpu/models/flux/test_flux_sharding.py::TestFluxSharding::test_context_parallel_attention_uses_gathered_keys_and_values
+tests/unit_tests/cpu/models/flux/test_flux_sharding.py::TestFluxSharding::test_packed_layout_preserves_sample_boundaries
+
 # --- tests/unit_tests/cpu/models/gpt_oss/test_gpt_oss_moe.py (2 cases) ---
 tests/unit_tests/cpu/models/gpt_oss/test_gpt_oss_moe.py::test_clamped_swiglu_rejects_invalid_policy
 tests/unit_tests/cpu/models/gpt_oss/test_gpt_oss_moe.py::test_swiglu_matches_reference_formula_and_gradients
@@ -550,6 +607,7 @@ tests/unit_tests/cpu/models/llama3/test_weight_tying.py::TestLlama3WeightTying::
 tests/unit_tests/cpu/models/llama3/test_weight_tying.py::TestLlama3WeightTying::test_weights_remain_tied_after_init_states
 
 # --- tests/unit_tests/cpu/models/qwen3_5/test_qwen3_5_moe.py (1 cases) ---
+tests/unit_tests/cpu/models/qwen3_5/test_qwen3_5_moe.py::TestSigmoidGatedFeedForward::test_shared_input_is_gathered_once_before_the_projection_regions
 
 # --- tests/unit_tests/cpu/recipes/test_inference_moe.py (4 cases) ---
 tests/unit_tests/cpu/recipes/test_inference_moe.py::TestInferenceMoEComposition::test_composition_is_order_independent
@@ -758,6 +816,43 @@ tests/unit_tests/cpu/models/common/test_qkv_linear.py::TestQKVLinearCheckpointIn
 tests/unit_tests/cpu/models/common/test_qkv_linear.py::TestFusedQKVForwardContiguity::test_forward_outputs_are_contiguous_and_correct
 tests/unit_tests/cpu/models/common/test_qkv_linear.py::TestFusedQKVForwardContiguity::test_raw_pointer_read_needs_contiguous
 
+# --- tests/unit_tests/cpu/quantization/test_quantization.py (35 cases) ---
+tests/unit_tests/cpu/quantization/test_quantization.py::test_no_quantization_by_default
+tests/unit_tests/cpu/quantization/test_quantization.py::test_quantization_preserves_specialized_row_parallel_linear
+tests/unit_tests/cpu/quantization/test_quantization.py::test_quantization_rejects_unsupported_linear_wrapper
+tests/unit_tests/cpu/quantization/test_quantization.py::test_get_quantized_linear_preserves_compute_and_tp_role
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_converter_rejects_router_gate
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_converter_preserves_tensor_parallel_role
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_converter_rejects_router_gate
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_converter_preserves_tensor_parallel_role
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_converter_targets_layers_not_lm_head
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_bf16_tail_fqns
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_first_85_pct_layers_converts_only_leading_layers
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_config_rejects_non_128_dims
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_build_configures_local_spmd_sharding
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_parallel_build_preserves_collective_boundary
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_recipes_parse
+tests/unit_tests/cpu/quantization/test_quantization.py::test_qwen3_recipes_resolve
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_module_buffers_and_native_checkpoint
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_stock_checkpoint_loads_before_init_states
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_hf_export_strips_buffers
+tests/unit_tests/cpu/quantization/test_quantization.py::test_quantized_grouped_linear
+tests/unit_tests/cpu/quantization/test_quantization.py::test_grouped_mm_overrides_keep_the_seam_signature
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_grouped_linear_flattens_structured_w13
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_linear_dcp_round_trip_needs_no_safe_globals
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_linear_validates_config_and_installs_weight_wrapper
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_converter_replaces_a_root_linear_config
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_converter_rejects_unaligned_fused_qkv_head_dim
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_converter_applies_mxfp8_saved_input_fqns
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_converter_rejects_unmatched_saved_input_fqns
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_converter_rejects_empty_saved_input_fqn
+tests/unit_tests/cpu/quantization/test_quantization.py::test_builtin_mxfp8_configs_assign_input_activation_format_for_backward
+tests/unit_tests/cpu/quantization/test_quantization.py::test_mxfp8_linear_loads_stock_checkpoint
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_grouped_converter_selects_both_projections_and_one_dispatcher_swap
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_grouped_converter_checks_both_widths_before_mutation
+tests/unit_tests/cpu/quantization/test_quantization.py::test_nvfp4_grouped_linear_forwards_flattened_w13_and_runtime_state
+tests/unit_tests/cpu/quantization/test_quantization.py::test_deepseek_nvfp4_recipes_preserve_quantization_and_routing
+
 # --- tests/unit_tests/cpu/scripts/test_convert_ema_to_hf.py (10 cases) ---
 tests/unit_tests/cpu/scripts/test_convert_ema_to_hf.py::TestConvertEmaToHf::test_export_carries_ema_weights_for_every_parameter
 tests/unit_tests/cpu/scripts/test_convert_ema_to_hf.py::TestConvertEmaToHf::test_end_to_end_write_puts_ema_weights_in_the_safetensors
@@ -770,7 +865,7 @@ tests/unit_tests/cpu/scripts/test_convert_ema_to_hf.py::TestConvertEmaToHfMultip
 tests/unit_tests/cpu/scripts/test_convert_ema_to_hf.py::TestConvertEmaToHfMultipleCopies::test_selected_copy_is_exported
 tests/unit_tests/cpu/scripts/test_convert_ema_to_hf.py::TestConvertEmaToHfFrozenParameters::test_frozen_parameter_exports_the_trained_weights
 
-# --- tests/unit_tests/cpu/scripts/test_download_hf_assets.py (10 cases) ---
+# --- tests/unit_tests/cpu/scripts/test_download_hf_assets.py (11 cases) ---
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_download_single_asset_types
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_download_multiple_asset_types
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_download_all_files
@@ -781,6 +876,7 @@ tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::t
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_download_failure_handling
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_invalid_repo_id_format
 tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_unknown_asset_type
+tests/unit_tests/cpu/scripts/test_download_hf_assets.py::TestDownloadHfAssets::test_tokenizer_includes_standalone_chat_template
 
 # --- tests/unit_tests/cpu/test_trainer.py (50 cases) ---
 tests/unit_tests/cpu/test_trainer.py::test_common_imports_do_not_require_dist_moe
@@ -877,3 +973,175 @@ tests/unit_tests/gpu/distributed/test_remat.py::TestRematRegions::test_vision_sa
 tests/unit_tests/gpu/distributed/test_remat.py::TestRematRegions::test_router_decision_is_always_saved
 tests/unit_tests/gpu/distributed/test_remat.py::TestRematRegions::test_quantile_router_statistics_are_recorded_once
 tests/unit_tests/gpu/distributed/test_remat.py::TestRematRegions::test_forced_router_statistics_are_recorded_once
+
+# --- tests/unit_tests/cpu/components/optim/test_ema_resharding.py (8 cases) ---
+tests/unit_tests/cpu/components/optim/test_ema_resharding.py::TestEMADTensorRewrap::test_rewrap_restores_the_global_shape
+tests/unit_tests/cpu/components/optim/test_ema_resharding.py::TestEMADTensorRewrap::test_rewrap_is_not_a_no_op_on_a_sharded_param
+tests/unit_tests/cpu/components/optim/test_ema_resharding.py::TestEMADTensorRewrap::test_plain_tensor_passes_through
+tests/unit_tests/cpu/components/optim/test_ema_resharding.py::TestEMACheckpointResharding::test_sharded_ema_state_reloads_as_whole_tensors
+tests/unit_tests/cpu/components/optim/test_ema_resharding.py::TestEMACheckpointResharding::test_buffer_ema_reshards_too
+tests/unit_tests/cpu/components/optim/test_ema_resharding.py::TestEMAMultiRankLifecycle::test_save_and_load_round_trip_over_sharded_params
+tests/unit_tests/cpu/components/optim/test_ema_resharding.py::TestEMAHsdpPlacements::test_rewrap_preserves_replicate_and_shard
+tests/unit_tests/cpu/components/optim/test_ema_resharding.py::TestEMAHsdpPlacements::test_update_is_identical_across_replicate_ranks
+
+# --- tests/unit_tests/cpu/config/test_tp_kv_heads_validation.py (6 cases) ---
+tests/unit_tests/cpu/config/test_tp_kv_heads_validation.py::TestTPKVHeadsValidation::test_llama3_kv_heads_not_divisible_raises
+tests/unit_tests/cpu/config/test_tp_kv_heads_validation.py::TestTPKVHeadsValidation::test_llama3_n_heads_not_divisible_raises
+tests/unit_tests/cpu/config/test_tp_kv_heads_validation.py::TestTPKVHeadsValidation::test_llama3_valid_gqa_does_not_raise
+tests/unit_tests/cpu/config/test_tp_kv_heads_validation.py::TestTPKVHeadsValidation::test_llama3_mha_none_kv_heads_does_not_raise
+tests/unit_tests/cpu/config/test_tp_kv_heads_validation.py::TestTPKVHeadsValidation::test_llama3_tp1_skips_check
+tests/unit_tests/cpu/config/test_tp_kv_heads_validation.py::TestTPKVHeadsValidation::test_checks_full_attention_after_sliding_attention
+
+# --- tests/unit_tests/cpu/distributed/flex_shard/test_optimizer_reshard_schedule.py (1 cases) ---
+tests/unit_tests/cpu/distributed/flex_shard/test_optimizer_reshard_schedule.py::TestMuonPlanConstruction::test_identical_layers_build_one_plan
+
+# --- tests/unit_tests/cpu/distributed/test_fsdp.py (5 cases) ---
+tests/unit_tests/cpu/distributed/test_fsdp.py::test_apply_fsdp_to_decoder_forwards_param_dtype_override_fn
+tests/unit_tests/cpu/distributed/test_fsdp.py::test_stacked_linear_shard_placements_use_num_linears
+tests/unit_tests/cpu/distributed/test_fsdp.py::test_enable_fsdp_symm_mem_scope[None-False-False]
+tests/unit_tests/cpu/distributed/test_fsdp.py::test_enable_fsdp_symm_mem_scope[all-True-True]
+tests/unit_tests/cpu/distributed/test_fsdp.py::test_enable_fsdp_symm_mem_scope[dense-True-False]
+
+# --- tests/unit_tests/cpu/distributed/test_pipeline_parallel.py (53 cases) ---
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_pipeline_with_first_last_stage_modules_prepends_present_modules
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_base_model_pipeline_derives_the_split_only_when_none_is_configured
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_pipeline_with_first_last_stage_modules_appends_present_last_stage_modules
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_generate_llm_fqn_rejects_zero_stages
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_generate_llm_fqn_single_stage_includes_all_modules
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_generate_llm_fqn_two_stages_default_weights
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_generate_llm_fqn_docstring_weighted_example
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_generate_llm_fqn_middle_stage_is_layers_only
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_generate_llm_fqn_rejects_more_stages_than_effective_layers
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_generate_llm_fqn_rejects_input_weight_exceeding_layers_per_stage
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_generate_llm_fqn_rejects_output_weight_exceeding_layers_per_stage
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_loop_schedule_maps_one_stage_per_rank[1F1B]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_loop_schedule_maps_one_stage_per_rank[Interleaved1F1B]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_loop_schedule_maps_interleaved_stages[1F1B]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_loop_schedule_maps_interleaved_stages[Interleaved1F1B]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_loop_schedule_maps_two_virtual_stages_across_four_ranks[1F1B]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_loop_schedule_maps_two_virtual_stages_across_four_ranks[Interleaved1F1B]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_v_schedule_maps_mirrored_stage_pairs
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_pp_rank_to_stage_mapping_requires_even_division
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_get_pipeline_metadata_requires_layers_attribute
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_static_decoder_stage_metadata_is_complete[1-1-False-False-None-128-128]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_static_decoder_stage_metadata_is_complete[2-1-False-False-None-64-64]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_static_decoder_stage_metadata_is_complete[2-1-False-False-load_balancer2-64-64]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_static_decoder_stage_metadata_is_complete[2-1-False-False-load_balancer3-64-64]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_static_decoder_stage_metadata_is_complete[2-2-True-True-load_balancer4-64-32]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_static_decoder_stage_metadata_describes_logits_output
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_static_decoder_metadata_accepts_standard_decoder_boundaries
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_static_decoder_metadata_rejects_custom_boundary
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_pipeline_param_residency_limit[None-2]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_pipeline_param_residency_limit[1-1]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_schedule_loss_replaces_loss_metrics
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_pipeline_param_residency_limit_must_be_positive[0]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_pipeline_param_residency_limit_must_be_positive[-1]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_rejects_invalid_values[None]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_rejects_invalid_values[True]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_rejects_invalid_values[2]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_rejects_invalid_values[default]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_rejects_invalid_values[adaptive]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_rejects_invalid_values[lookahead5]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_rejects_invalid_values[lookahead6]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_rejects_invalid_values[lookahead7]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_rejects_invalid_values[lookahead8]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_defaults_to_auto
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_is_forwarded_to_multistage_schedule[full-full]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_is_forwarded_to_multistage_schedule[auto-auto]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_unshard_lookahead_is_forwarded_to_multistage_schedule[lookahead2-expected2]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_per_rank_unshard_lookahead_rejects_single_stage_schedule
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_get_module_fqns_per_model_part_is_the_split_the_pipeline_uses
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_layers_per_stage_sizes_the_derived_split
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_parallelism_config_refuses_a_split_with_layers_per_stage
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_build_pipeline_schedule_sets_deferred_reduce_grad_wait[True-True]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_build_pipeline_schedule_sets_deferred_reduce_grad_wait[False-False]
+tests/unit_tests/cpu/distributed/test_pipeline_parallel.py::test_build_pipeline_schedule_forwards_max_outstanding_sends
+
+# --- tests/unit_tests/cpu/models/flux/test_flux_mxfp8_readme.py (1 cases) ---
+tests/unit_tests/cpu/models/flux/test_flux_mxfp8_readme.py::test_flux_mxfp8_readme_custom_example_uses_converters
+
+# --- tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py (9 cases) ---
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py::TestRouting::test_tables_follow_the_map_not_an_equal_split
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py::TestRouting::test_without_the_cache_every_hop_carries_everything
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py::TestRouting::test_infer_accepts_the_map_and_rejects_a_broken_one
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py::TestRouting::test_the_map_is_read_off_the_split
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py::TestSplit::test_the_default_pp2_vpp2_split_has_every_transport_path
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py::TestSplit::test_the_pp2_vpp4_cell_collects_three_deposits_per_block
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py::TestSplit::test_pp4_vpp4_runs_one_layer_per_stage
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py::TestLoopStyleGuard::test_a_loop_style_assignment_passes
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_layout.py::TestLoopStyleGuard::test_any_other_assignment_is_refused
+
+# --- tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_stage.py (5 cases) ---
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_stage.py::TestCarrier::test_assembly_orders_blocks_and_hands_back_a_leaf
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_stage.py::TestCarrier::test_payload_is_the_routed_columns_of_the_model_stack
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_stage.py::TestCarrier::test_gradient_split_sends_the_received_and_deposits_the_stored
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_stage.py::TestCarrier::test_store_accumulates_deposits_and_releases_blocks_separately
+tests/unit_tests/cpu/models/kimi_k3/test_kimi_k3_pp_stage.py::TestForwardOnly::test_eval_backward_routes_nothing_and_forgets_the_chunk
+
+# --- tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer.py (5 cases) ---
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer.py::TestMuseGlimmerConditionalVision::test_image_grid_rejects_mismatched_patch_count
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer.py::TestMuseGlimmerConditionalVision::test_direct_forward_rejects_temporal_image_grid
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer.py::TestMuseGlimmerConditionalVision::test_image_features_forward_and_backward
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer.py::TestMuseGlimmerConditionalVision::test_built_config_shards_owned_vision_modules
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer.py::TestMuseGlimmerConditionalVision::test_image_free_path_gives_all_vision_parameters_zero_gradients
+
+# --- tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py (5 cases) ---
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py::test_config_rejects_invalid_values[kwargs0]
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py::test_config_rejects_invalid_values[kwargs1]
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py::test_config_rejects_invalid_values[kwargs2]
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py::test_config_rejects_invalid_values[kwargs3]
+tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py::test_config_is_immutable
+
+# --- tests/unit_tests/cpu/models/muse_spark/test_navit_encoder.py (3 cases) ---
+tests/unit_tests/cpu/models/muse_spark/test_navit_encoder.py::test_rope_frequency_meta_initialization_matches_hf
+tests/unit_tests/cpu/models/muse_spark/test_navit_encoder.py::test_position_sampling_and_permutation_spmd_types[raster]
+tests/unit_tests/cpu/models/muse_spark/test_navit_encoder.py::test_position_sampling_and_permutation_spmd_types[legacy_spark]
+
+# --- tests/unit_tests/cpu/models/muse_spark/test_renderer.py (16 cases) ---
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_generation_prompt_and_loss_mask
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_unsampled_assistant_and_escaped_input
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_parse_reasoning_and_answer
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_tool_call_roundtrip_and_result_name
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_reasoning_strength_matches_published_template[low-8]
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_reasoning_strength_matches_published_template[medium-32]
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_reasoning_strength_matches_published_template[high-256]
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_reasoning_strength_matches_published_template[xhigh-512]
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_rejects_reasoning_effort_missing_from_published_template
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_function_schemas_match_published_template
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_rejects_media_content[content0]
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_rejects_media_content[content1]
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_bridge_matches_full_render_for_canonical_completion
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_bridge_matches_full_render_for_tool_results_and_user
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_bridge_keeps_non_canonical_completion_verbatim
+tests/unit_tests/cpu/models/muse_spark/test_renderer.py::test_bridge_falls_back_to_re_render
+
+# --- tests/unit_tests/cpu/models/muse_spark/test_state_dict_adapter.py (4 cases) ---
+tests/unit_tests/cpu/models/muse_spark/test_state_dict_adapter.py::MuseSparkStateDictAdapterTest::test_hf_names_and_tensor_layouts
+tests/unit_tests/cpu/models/muse_spark/test_state_dict_adapter.py::MuseSparkStateDictAdapterTest::test_checkpoint_roundtrip
+tests/unit_tests/cpu/models/muse_spark/test_state_dict_adapter.py::MuseSparkStateDictAdapterTest::test_packed_weights_require_matching_metadata_dtypes
+tests/unit_tests/cpu/models/muse_spark/test_state_dict_adapter.py::MuseSparkStateDictAdapterTest::test_packed_weights_validate_input_dtypes
+
+# --- tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py (10 cases) ---
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_multimodal_tokens_and_loss_mask
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_missing_special_token_is_rejected[image_token]
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_missing_special_token_is_rejected[video_token]
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_missing_special_token_is_rejected[vision_start_token]
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_missing_special_token_is_rejected[vision_end_token]
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_missing_special_token_is_rejected[audio_token]
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_missing_special_token_is_rejected[audio_start_token]
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_missing_special_token_is_rejected[audio_end_token]
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_missing_special_token_is_rejected[pad_token]
+tests/unit_tests/cpu/models/muse_spark/test_tokenizer.py::test_generation_blocks_and_json_filter
+
+# --- tests/unit_tests/cpu/models/qwen3_5/test_offset_rmsnorm.py (1 cases) ---
+tests/unit_tests/cpu/models/qwen3_5/test_offset_rmsnorm.py::test_qwen35_architecture_enables_offset_rmsnorm_local_compile
+
+# --- tests/unit_tests/cpu/quantization/test_quantized_fsdp_tensor.py (1 cases) ---
+tests/unit_tests/cpu/quantization/test_quantized_fsdp_tensor.py::test_fsdp_gathers_a_stacked_weight_on_its_matrix_row_dim
+
+# --- tests/unit_tests/cpu/recipes/test_muse_spark.py (5 cases) ---
+tests/unit_tests/cpu/recipes/test_muse_spark.py::test_fake_scale_recipe_tokenizer[muse_spark_816b_a42b_dist_moe_bf16_spmd_256_fake]
+tests/unit_tests/cpu/recipes/test_muse_spark.py::test_fake_scale_recipe_tokenizer[muse_spark_816b_a42b_dist_moe_bf16_spmd_512_fake]
+tests/unit_tests/cpu/recipes/test_muse_spark.py::test_production_recipe_keeps_multimodal_tokenizer
+tests/unit_tests/cpu/recipes/test_muse_spark.py::test_debug_recipe_tokenizer[muse_spark_debugmodel]
+tests/unit_tests/cpu/recipes/test_muse_spark.py::test_debug_recipe_tokenizer[muse_spark_debugmodel_mm]

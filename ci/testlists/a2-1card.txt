@@ -83,3 +83,46 @@ tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_adds
 tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_adds_bf16_wgrad_into_fp32_running_grad[2]
 tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_first_wgrad_is_produced_in_grad_dtype[1]
 tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_first_wgrad_is_produced_in_grad_dtype[2]
+
+# --- tests/unit_tests/gpu/models/common/test_async_linear.py (2 cases) ---
+tests/unit_tests/gpu/models/common/test_async_linear.py::TestAsyncTensorParallelConfig::test_sharding_setup_declares_common_communication_contracts
+tests/unit_tests/gpu/models/common/test_async_linear.py::TestAsyncTensorParallelConfig::test_projection_boundaries_survive_lora_config_wrappers
+
+# --- tests/unit_tests/gpu/models/common/test_moe_aux_loss_compile.py (1 cases) ---
+tests/unit_tests/gpu/models/common/test_moe_aux_loss_compile.py::TestMoEAuxLossLocalCompile::test_forward_and_backward_match_eager
+
+# --- tests/unit_tests/gpu/models/common/test_situglu.py (3 cases) ---
+tests/unit_tests/gpu/models/common/test_situglu.py::TestSiTUGLULocalCompile::test_forward_and_backward_emit_triton
+tests/unit_tests/gpu/models/common/test_situglu.py::TestSiTUGLULocalCompile::test_forward_and_backward_match_reference_with_offsets
+tests/unit_tests/gpu/models/common/test_situglu.py::TestSiTUGLULocalCompile::test_forward_and_backward_are_batch_invariant
+
+# --- tests/unit_tests/gpu/models/common/test_swiglu.py (8 cases) ---
+tests/unit_tests/gpu/models/common/test_swiglu.py::TestSwiGLULocalCompile::test_forward_and_backward_emit_triton
+tests/unit_tests/gpu/models/common/test_swiglu.py::TestSwiGLULocalCompile::test_unbinds_inside_compiled_region
+tests/unit_tests/gpu/models/common/test_swiglu.py::TestSwiGLULocalCompile::test_keeps_f_static_and_ignores_offsets
+tests/unit_tests/gpu/models/common/test_swiglu.py::TestSwiGLULocalCompile::test_forward_and_backward_match_reference
+tests/unit_tests/gpu/models/common/test_swiglu.py::TestSwiGLULocalCompile::test_gpt_oss_forward_and_backward_are_batch_invariant
+tests/unit_tests/gpu/models/common/test_swiglu.py::TestSwiGLULocalCompile::test_gpt_oss_forward_and_backward_match_reference
+tests/unit_tests/gpu/models/common/test_swiglu.py::TestSwiGLULocalCompile::test_grouped_offsets_match_reference
+tests/unit_tests/gpu/models/common/test_swiglu.py::TestSwiGLULocalCompile::test_forward_and_backward_are_batch_invariant
+
+# --- tests/unit_tests/gpu/recipes/test_fused_swiglu.py (11 cases) ---
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLU::test_replaces_only_activation
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLU::test_gate_up_projection_is_linear
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLU::test_preserves_converted_linear_config
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLU::test_saves_native_layout_without_copy
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLU::test_triton_checkpoint_loads_into_native
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLU::test_native_checkpoint_loads_into_triton
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLU::test_fused_roundtrip
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLU::test_strict_load_reports_missing
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLUDistGemmComposition::test_dist_gemm_config_keeps_overlap
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLUDistGemmComposition::test_overlapping_variant_keeps_w13_checkpoint_layout
+tests/unit_tests/gpu/recipes/test_fused_swiglu.py::TestFusedSwiGLUHFAdapter::test_hf_adapter_roundtrip
+
+# --- tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py (6 cases) ---
+tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUOverride::test_swiglu_config_is_replaced
+tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUNumerics::test_matches_reference_forward_and_backward
+tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUOverrideKernels::test_silu_and_mul_custom_op_matches_reference_with_offsets
+tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUOverrideKernels::test_silu_and_mul_custom_op_matches_reference_without_offsets
+tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUOverrideKernels::test_silu_and_mul_kernels_match_reference_with_offsets
+tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUOverrideKernels::test_silu_and_mul_uses_int64_row_stride_arithmetic

@@ -36,6 +36,8 @@ checkout https://github.com/pytorch/torchtitan.git /opt/torchtitan \
     45e33cd413b64cb37a7840cfd3c9765d3c639ae1
 uv pip install -e /opt/torchtitan -e "$source_dir" -r "$source_dir/ci/requirements.txt"
 
+bash "$source_dir/ci/install-test-deps.sh" "$target"
+
 if [[ "$target" == a2 ]]; then
     [[ "$(uname -m)" == aarch64 ]] || { echo 'A2 requires aarch64.' >&2; exit 2; }
     set +u

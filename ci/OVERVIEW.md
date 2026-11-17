@@ -71,6 +71,12 @@ bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-8card
 
 The script installs code from its repository, copies adapted tests, and runs the corresponding list. The A2 test runner loads CANN and the other runtime environments automatically, including when invoked through `docker exec`; no manual entrypoint invocation is required.
 
+### Test-Specific Dependencies
+
+[install-test-deps.sh](install-test-deps.sh) manages Python packages required by unit tests. Image builds use the script to preinstall dependencies. The CPU and two-card A2 test jobs call the same script before running tests and install any missing or mismatched versions. CPU tests install TorchAO and Dist-MoE, and two-card A2 tests install TorchAO.
+
+When a new test requires another Python package, pin its version and source in this script and specify the applicable test targets. Installation uses `--no-deps`, so declare any additional packages the test needs. Include tests that depend on external data or services only when CI can reliably access those resources.
+
 ### Local CPU Validation
 
 Run on the host, using the image's source at `/opt/torchtitan-ascend`:

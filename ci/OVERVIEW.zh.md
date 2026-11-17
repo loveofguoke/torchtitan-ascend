@@ -71,6 +71,12 @@ bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-8card
 
 脚本安装所在仓库的代码、复制适配用例，并执行对应清单。A2 用例脚本自动加载 CANN 等运行环境，通过 `docker exec` 执行时也无需手动执行入口脚本。
 
+### 单测专用依赖
+
+[install-test-deps.sh](install-test-deps.sh) 管理单元测试专用的 Python 依赖。镜像构建使用该脚本预装依赖，CPU 和 A2 双卡测试在执行用例前调用同一脚本，安装缺失或版本不符的包。CPU 测试安装 TorchAO 和 Dist-MoE，A2 双卡测试安装 TorchAO。
+
+新增用例需要额外的 Python 包时，在该脚本中固定版本和安装来源，并声明适用的测试目标。安装使用 `--no-deps`，用例实际需要的其他依赖也应明确声明。依赖外部数据或服务的用例，只有在 CI 可稳定访问所需资源时才纳入清单。
+
 ### 本地验证 CPU
 
 在宿主机执行，使用镜像内 `/opt/torchtitan-ascend` 的代码：
