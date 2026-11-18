@@ -17,9 +17,7 @@ from torchtitan.models.common.moe.token_dispatcher import AllToAllTokenDispatche
 from torchtitan_ascend.overrides.common.moe.mc2_routed_experts import (
     npu_mc2_routed_experts,
 )
-from torchtitan_ascend.overrides.common.moe.token_dispatcher import (
-    npu_token_dispatcher,
-)
+from torchtitan_ascend.overrides.common.moe.token_dispatcher import npu_token_dispatcher
 
 pytestmark = pytest.mark.npu
 
@@ -145,3 +143,45 @@ def test_mc2_routed_experts_ep(ep_runtime):
     assert torch.isfinite(output).all()
     for tensor in (x, scores, model.w13.weight, model.w2.weight):
         _assert_gradient(tensor)
+
+
+def test_deepep_dispatcher_ep(ep_runtime):
+    """Dispatch and combine through the real DeepEP-Ascend EPBuffer."""
+    from importlib.util import find_spec
+
+    if find_spec("deep_ep") is None:
+        pytest.skip("requires DeepEP-Ascend (deep_ep)")
+    from torchtitan_ascend.device import get_device_name
+
+    if not get_device_name().startswith("Ascend950"):
+        pytest.skip("DeepEP-Ascend requires Ascend 950")
+
+    from torchtitan_ascend.overrides.deepep import npu_deepep
+    from torchtitan_ascend.overrides.deepep.runtime import destroy_all_buffers
+
+    rank, world_size, device = ep_runtime
+    dispatcher = npu_deepep(
+        AllToAllTokenDispatcher.Config(
+            num_experts=world_size * EXPERTS_PER_RANK, top_k=TOP_K
+        ),
+        num_max_tokens_per_rank=TOKENS,
+        hidden_dim=DIM,
+    ).build()
+    dispatcher.init_buffer()
+    x, scores, ids, counts = _inputs(rank, world_size, device, torch.bfloat16)
+    try:
+        routed, expert_counts, metadata = dispatcher.dispatch(
+            x, scores, ids.to(torch.int64), counts
+        )
+        output = dispatcher.combine(routed, metadata, x)
+        output.square().mean().backward()
+
+        assert routed.shape[1] == DIM
+        assert expert_counts.sum().item() == routed.shape[0]
+        assert output.shape == x.shape
+        torch.testing.assert_close(output, x, rtol=2e-2, atol=2e-2)
+        _assert_gradient(x)
+        _assert_gradient(scores)
+    finally:
+        torch.npu.synchronize()
+        destroy_all_buffers()

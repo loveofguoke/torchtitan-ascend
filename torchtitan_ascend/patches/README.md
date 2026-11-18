@@ -44,6 +44,7 @@
 | [sort_layout.py](sort_layout.py) | 为当前固定的 torch_npu 版本约束稳定排序 fallback 的输入布局，避免错误读取 BlockMask 反向索引。 |
 | [flex_attention_determinism.py](flex_attention_determinism.py) | 启用严格确定性时，Flex 从首次调用尝试动态形状编译，并使用固定的缓存版本标记隔离修复前的图。 |
 | [varlen_attention](varlen_attention/__init__.py) | 将公共 varlen API 连接到 NPU 前后向，按 Q/K 配对过滤空文档槽，保留文档边界及参数校验。 |
+| [deepep.py](deepep.py) | 在 TrainingEngine 关闭阶段释放 DeepEP EPBuffer pool，先于进程组销毁；未启用 DeepEP 后端时为空操作，不导入 `deep_ep`。 |
 
 ### 因果卷积 SPMD 类型规则
 
