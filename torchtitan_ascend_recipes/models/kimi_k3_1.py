@@ -97,12 +97,17 @@ def kimi_k3_1_pro_npu(
     model = build_model_config(
         "Kimi-K3.1-Pro", parallelism=parallelism, seq_len=seq_len, multimodal=True
     )
+    dataloader = _kimi_k3_multimodal_dataloader(MM_DATASETS["cc12m"])
+    dataloader.dataset = MMSamplePackingConfig(
+        dataset=dataloader.dataset,
+        num_packing_bins=1,
+    )
     vocab_size = decoder_vocab_size(model)
     config = Trainer.Config(
         model=model,
         hf_assets_path=hf_assets_path,
         tokenizer=MultiModalTokenizer.Config(**KIMI_K3_SPECIAL_TOKENS),
-        dataloader=_kimi_k3_multimodal_dataloader(MM_DATASETS["cc12m"]),
+        dataloader=dataloader,
         loss=ChunkedLossWrapper.Config(
             loss_fn=CrossEntropyLoss.Config(global_vocab_size=vocab_size),
         ),

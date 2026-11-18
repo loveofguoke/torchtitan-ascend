@@ -128,6 +128,10 @@ def kimi_k3_debugmodel_npu(
 ) -> Trainer.Config:
     """Build the NPU debug recipe with DistMuon and multimodal test data."""
     config = kimi_k3_debugmodel(parallelism=parallelism, attn_backend=attn_backend)
+    config.dataloader.dataset = MMSamplePackingConfig(
+        dataset=config.dataloader.dataset,
+        num_packing_bins=1,
+    )
     npu_changes(config)
     return config
 
