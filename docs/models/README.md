@@ -9,6 +9,7 @@
 | [Kimi K3](kimi_k3.md) | 复用 TorchTitan Kimi K3 | [kimi_k3.py](../../torchtitan_ascend_recipes/models/kimi_k3.py) | debug、自定义 7B 规格及 MoonEP 配置 |
 | [Kimi K3.1](kimi_k3_1.md) | 本地 Kimi K3.1 扩展，复用上游 Kimi 组件 | [kimi_k3_1.py](../../torchtitan_ascend_recipes/models/kimi_k3_1.py) | reduced 适配验证与 Pro 训练配置；完整 Pro 训练待验证 |
 | [DeepSeek V3](deepseek_v3.md) | 复用 TorchTitan DeepSeek V3 | [deepseek_v3.py](../../torchtitan_ascend_recipes/models/deepseek_v3.py) | debug packed 文本短程运行及 FSDP/TP/EP 配置 |
+| [DeepSeek V4](deepseek_v4.md) | 复用 TorchTitan DeepSeek V4 | [deepseek_v4.py](../../torchtitan_ascend_recipes/models/deepseek_v4.py) | debug packed 文本短程运行及 TP/EP/PP 配置 |
 | [DeepSeek V4.1](deepseek_v4_1.md) | 本地 DeepSeek V4.1 实现，复用上游组件 | [deepseek_v4_1.py](../../torchtitan_ascend_recipes/models/deepseek_v4_1.py) | debug packed 文本短程运行及 TP/EP 配置 |
 
 先完成[基础安装](../../INSTALL.md)，再按模型文档准备专用依赖和数据。配方组织、启动接口及旧模块路径迁移见[配方说明](../../torchtitan_ascend_recipes/README.md)。
