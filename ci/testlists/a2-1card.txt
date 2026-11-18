@@ -126,3 +126,11 @@ tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUOverr
 tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUOverrideKernels::test_silu_and_mul_custom_op_matches_reference_without_offsets
 tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUOverrideKernels::test_silu_and_mul_kernels_match_reference_with_offsets
 tests/unit_tests/gpu/recipes/test_fused_swiglu_override.py::TestFusedSwiGLUOverrideKernels::test_silu_and_mul_uses_int64_row_stride_arithmetic
+
+# --- tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py (6 cases) ---
+tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py::TestGatedDeltaNetContextParallel::test_inner_gdn_uses_cp_convolution_history_and_routing
+tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py::TestQwen35DeltaNetVarlen::test_extracted_forward_matches_main
+tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py::TestQwen35DeltaNetVarlen::test_flex_masks_include_delta_net_varlen_metadata
+tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py::TestQwen35DeltaNetVarlen::test_get_attention_metadata_pairs_flex_mask_with_deltanet_offsets
+tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py::TestQwen35DeltaNetVarlen::test_padding_mask_separates_padding_segment
+tests/unit_tests/gpu/models/qwen3_5/test_qwen3_5_deltanet.py::TestQwen35DeltaNetVarlen::test_varlen_matches_independent_document_forwards
