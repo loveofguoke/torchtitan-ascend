@@ -33,7 +33,7 @@ from torchtitan_ascend.overrides.moonep.training import MoonEPTrainer
 _GATED_RMSNORM_REGION = "gated_rmsnorm"
 
 
-def npu_changes(config: Trainer.Config) -> None:
+def kimi_k3_npu_adapter(config: Trainer.Config) -> None:
     """Apply Ascend KDA kernels and runtime settings."""
     from torchtitan_ascend.overrides.common.attention.kda import npu_kda
 
@@ -50,7 +50,7 @@ def npu_changes(config: Trainer.Config) -> None:
     ]
 
 
-def npu_fusion(config: Trainer.Config) -> None:
+def kimi_k3_npu_fusion(config: Trainer.Config) -> None:
     """Apply Ascend fused operators."""
     from torchtitan_ascend.overrides.common.activation.situglu import npu_situ_glu
     from torchtitan_ascend.overrides.common.attention.fusion_attention import (
@@ -72,7 +72,7 @@ def npu_fusion(config: Trainer.Config) -> None:
     enable_vision_rotary_mul()
 
 
-def apply_kimi_cp(
+def kimi_k3_cp_transform(
     config: Trainer.Config,
     *,
     kda_cp_backend: Literal["ulysses"] = "ulysses",
@@ -132,7 +132,7 @@ def kimi_k3_debugmodel_npu(
         dataset=config.dataloader.dataset,
         num_packing_bins=1,
     )
-    npu_changes(config)
+    kimi_k3_npu_adapter(config)
     return config
 
 
@@ -190,7 +190,7 @@ def kimi_k3_7b_npu(
         parallelism=config.parallelism,
     )
     config.__post_init__()
-    npu_changes(config)
+    kimi_k3_npu_adapter(config)
     return config
 
 

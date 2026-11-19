@@ -107,12 +107,12 @@ def test_recipe_registers_residual_override_without_rebinding(monkeypatch):
 
     from torchtitan_ascend_recipes.models.kimi_k3 import (
         kimi_k3_debugmodel_npu,
-        npu_fusion,
+        kimi_k3_npu_fusion,
     )
 
     monkeypatch.setattr(vision_encoder, "ComplexRoPE", vision_encoder.ComplexRoPE)
     original = MODULE.AttentionResidual.__call__
     config = kimi_k3_debugmodel_npu()
-    npu_fusion(config)
+    kimi_k3_npu_fusion(config)
     assert MODULE.attn_res_override_target() in config.override.imports
     assert MODULE.AttentionResidual.__call__ is original

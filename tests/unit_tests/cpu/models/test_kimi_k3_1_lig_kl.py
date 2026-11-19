@@ -6,21 +6,19 @@ from dataclasses import replace
 import pytest
 import torch
 import torch.nn.functional as F
+from torchtitan.config.parallelism import ParallelismConfig
 from torchtitan.models.common.attention import VarlenAttentionMetadata
 
+from torchtitan_ascend.models.kimi_k3_1 import build_model_config
 from torchtitan_ascend.models.kimi_k3_1.dsa import IndexerFeatures
 from torchtitan_ascend.overrides.kimi_k3_1.lig_kl import npu_lig_kl
-from torchtitan_ascend_recipes.models.kimi_k3_1 import (
-    kimi_k3_1_multimodal_debugmodel_npu,
-)
 
 
 def _debug_lig_config(num_heads: int):
-    attention = (
-        kimi_k3_1_multimodal_debugmodel_npu(seq_len=1152)
-        .model.layers[3]
-        .attention.inner_attention
+    model = build_model_config(
+        "debugmodel", seq_len=1152, parallelism=ParallelismConfig(), multimodal=True
     )
+    attention = model.layers[3].attention.inner_attention
     # SFA/LIG require a 512-wide latent; retain the debug model's 64-wide RoPE tail.
     return replace(
         attention,

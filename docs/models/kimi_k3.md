@@ -151,8 +151,8 @@ ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NGPU=8 \
 | 支持特性 | 启用方式 | 备注 |
 |---|---|---|
 | MoonEP | 使用 `kimi_k3_7b_moonep` 配方 | 要求 Ascend 950 且 EP 并行数 > 1 |
-| Context Parallel（CP） | 设置 CP 度，构建新配方以调用 `apply_kimi_cp`。 | 要求连续序列分片，关闭 CP 负载均衡。KDA 的注意力头数须能被 TP × CP 整除。 |
-| NPU 融合算子 | 构建新配方以调用 `npu_fusion`。 | 融合 attention 匹配 Flex 配置，融合 SiTU-GLU 需要 `cann_ops_nn`。 |
+| Context Parallel（CP） | 设置 CP 度，构建新配方以调用 `kimi_k3_cp_transform`。 | 要求连续序列分片，关闭 CP 负载均衡。KDA 的注意力头数须能被 TP × CP 整除。 |
+| NPU 融合算子 | 构建新配方以调用 `kimi_k3_npu_fusion`。 | 融合 attention 匹配 Flex 配置，融合 SiTU-GLU 需要 `cann_ops_nn`。 |
 | 融合 permute/unpermute | 设置 EP 度，通过 `--override` 选择 dispatcher 或者 MC2。 | EP 度大于 1，all-to-all dispatcher 与 MC2 二选一，MC2 要求 `output_postprocess=None`。 |
 
 #### 5.3.1 MoonEP
@@ -170,10 +170,13 @@ ASCEND_RT_VISIBLE_DEVICES=0,1 NGPU=2 \
 
 #### 5.3.2 上下文并行（Context Parallel）
 
-构建带有 `apply_kimi_cp` 的配方，修改命令配置 `MODULE` 和 `CONFIG` 以指向该配方。函数默认采用 Ulysses MLA 和 Ulysses KDA。
+构建带有 `kimi_k3_cp_transform` 的配方，修改命令配置 `MODULE` 和 `CONFIG` 以指向该配方。函数默认采用 Ulysses MLA 和 Ulysses KDA。
 
 ```python
-from torchtitan_ascend_recipes.models.kimi_k3 import apply_kimi_cp, kimi_k3_debugmodel_npu
+from torchtitan_ascend_recipes.models.kimi_k3 import (
+    kimi_k3_cp_transform,
+    kimi_k3_debugmodel_npu,
+)
 
 
 def debug_cp2():
@@ -181,7 +184,7 @@ def debug_cp2():
     config.parallelism.data_parallel_shard_degree = 1
     config.parallelism.context_parallel_degree = 2
     config.parallelism.context_parallel_load_balancer = None
-    return apply_kimi_cp(config)
+    return kimi_k3_cp_transform(config)
 ```
 
 #### 5.3.3 NPU 融合算子
@@ -189,12 +192,12 @@ def debug_cp2():
 修改运行配置为 `CONFIG=debug_fusion`。
 
 ```python
-from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu, npu_fusion
+from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu, kimi_k3_npu_fusion
 
 
 def debug_fusion(attn_backend="varlen"):
     config = kimi_k3_debugmodel_npu(attn_backend=attn_backend)
-    npu_fusion(config)
+    kimi_k3_npu_fusion(config)
     return config
 ```
 

@@ -80,8 +80,8 @@ def test_parallel_recipe_composition(tp, cp, replicate, enable_sp, schedule):
 
     from torchtitan_ascend.overrides.moonep.experts import MoonEPRoutedExperts
     from torchtitan_ascend_recipes.models.kimi_k3 import (
-        apply_kimi_cp,
         kimi_k3_7b_moonep,
+        kimi_k3_cp_transform,
     )
 
     config = kimi_k3_7b_moonep(
@@ -103,7 +103,7 @@ def test_parallel_recipe_composition(tp, cp, replicate, enable_sp, schedule):
     config.parallelism.tensor_parallel_degree = tp
     config.parallelism.context_parallel_degree = cp
     if cp > 1:
-        config = apply_kimi_cp(config)
+        config = kimi_k3_cp_transform(config)
     apply_overrides(config.override, config)
     config.__post_init__()
     experts = list(config.model.traverse(MoonEPRoutedExperts.Config))

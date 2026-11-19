@@ -19,7 +19,7 @@ Kimi K3.1 使用 Kimi Delta Attention（KDA）和 DeepSeek Sparse Attention（DS
 |---|---|
 | BF16 图文训练 | 两个配方均使用图文输入和 BF16 训练，从随机初始化开始 |
 | KDA | Ascend 配方启用 FLA NPU 的 KDA 和短卷积 |
-| DSA | 默认 Indexer 为 32 头、每头 128 维，Top-K 为 2048。Pro 配方要求 TP=CP=1 |
+| DSA | Ascend 配方启用 稀疏 Flash Attention（SFA）和 Indexer 梯度与 KL loss 融合算子 <br> 默认 Indexer 为 32 头、每头 128 维，Top-K 为 2048 |
 | `torch.compile` | Ascend 配方的局部编译配置排除 `gated_rmsnorm` |
 
 ## 2. 环境安装
@@ -27,6 +27,26 @@ Kimi K3.1 使用 Kimi Delta Attention（KDA）和 DeepSeek Sparse Attention（DS
 按[精度验证环境](#6-精度验证)中的 Ascend 实测版本准备环境。使用 Linux aarch64、Ascend 950DT、CANN `9.2.1`、驱动 `26.2.0.b020` 和配套固件。Python、PyTorch、TorchNPU 和 Triton-Ascend 版本见该节环境表。复现实测环境时，Triton-Ascend launcher 使用 C++20。 [C++20 launcher 补丁](../../fixes/triton-ascend/TA-3-cxx20-launcher.patch)
 
 FLA NPU 按 Kimi K3 指南构建和配置 OPP，使用 `ascend950` 构建目标及实测提交 `7e39f9668eed285fc91cde0502f46cd48686a681`。精度验证使用 `FLA_NPU_OPS=causal_conv1d,causal_conv1d_bwd,chunk_kda_fwd,chunk_kda_bwd`。 [FLA NPU 安装](kimi_k3.md#安装-fla-npu)
+
+### 构建 SFAG 算子
+
+通过执行以下命令以构建 Sparse Flash Attention Grad（SFAG）融合算子以支持 Kimi K3.1 模型所需的尺寸配置。
+
+```bash
+git clone --branch v9.2.0 https://gitcode.com/cann/ops-transformer.git
+git -C ops-transformer apply $TITAN_ASCEND/fixes/ops-transformer/sfag-query-heads.patch
+cd ops-transformer
+bash build.sh --pkg --soc=ascend950 --ops=sparse_flash_attention_grad --vendor_name=kimik31_sfag -j64
+bash build_out/cann-ops-transformer-kimik31_sfag_linux-aarch64.run
+```
+
+在训练时，通过以下命令加载该反向算子。
+
+```bash
+SFAG_OPP="$ASCEND_HOME_PATH/opp/vendors/kimik31_sfag_transformer"
+export ASCEND_CUSTOM_OPP_PATH="$SFAG_OPP${ASCEND_CUSTOM_OPP_PATH:+:$ASCEND_CUSTOM_OPP_PATH}"
+export LD_LIBRARY_PATH="$SFAG_OPP/op_api/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+```
 
 ## 3. 数据集准备
 
@@ -50,7 +70,7 @@ ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NGPU=8 \
     CONFIG=kimi_k3_1_reduced_npu ./run_train.sh
 ```
 
-在自定义 Python 配方中，可调用 `npu_fusion_kimik31(config)` 启用 DSA 等融合算子。 [debug 配方融合验证](https://gitcode.com/Ascend/torchtitan-ascend/pull/195)
+在自定义 Python 配方中，可调用 `kimi_k3_1_npu_fusion(config)` 启用 DSA 等融合算子。 [debug 配方融合验证](https://gitcode.com/Ascend/torchtitan-ascend/pull/195)
 
 ### 5.2 Pro 配方
 

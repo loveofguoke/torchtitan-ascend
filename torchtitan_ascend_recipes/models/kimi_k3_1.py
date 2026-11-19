@@ -43,11 +43,24 @@ from torchtitan_ascend.models.kimi_k3_1.model import (
     KimiK31TransformerBlock,
 )
 
-from torchtitan_ascend_recipes.models.kimi_k3 import npu_changes
+from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_npu_adapter
 
 
-def npu_fusion_kimik31(config: Trainer.Config) -> None:
-    """Apply the Kimi K3.1 attention, normalization, MLP, and vision fusions."""
+def kimi_k3_1_npu_adapter(config: Trainer.Config) -> None:
+    """Apply Ascend KDA, Lightning Indexer, sparse attention, and fused indexer KL."""
+    from torchtitan_ascend.overrides.kimi_k3_1.dsa import npu_lightning_indexer
+    from torchtitan_ascend.overrides.kimi_k3_1.lig_kl import npu_lig_kl
+
+    kimi_k3_npu_adapter(config)
+    config.override.imports = [
+        *config.override.imports,
+        override_target(npu_lightning_indexer),
+        override_target(npu_lig_kl),
+    ]
+
+
+def kimi_k3_1_npu_fusion(config: Trainer.Config) -> None:
+    """Apply the optional normalization, MLP, attention residual, and vision fusions."""
     from torchtitan_ascend.overrides.common.activation.situglu import npu_situ_glu
     from torchtitan_ascend.overrides.common.linear.grouped_linear import (
         npu_grouped_linear,
@@ -57,8 +70,6 @@ def npu_fusion_kimik31(config: Trainer.Config) -> None:
     from torchtitan_ascend.overrides.kimi_k3.packed_vision_attention import (
         npu_packed_vision_attention,
     )
-    from torchtitan_ascend.overrides.kimi_k3_1.dsa import npu_lightning_indexer
-    from torchtitan_ascend.overrides.kimi_k3_1.lig_kl import npu_lig_kl
     from torchtitan_ascend.overrides.rotary_mul import enable_vision_rotary_mul
 
     # Apply child overrides before a routed-expert override claims their parent.
@@ -76,8 +87,6 @@ def npu_fusion_kimik31(config: Trainer.Config) -> None:
         override_target(npu_rmsnorm),
         override_target(npu_gated_rmsnorm),
         override_target(npu_attn_res),
-        override_target(npu_lightning_indexer),
-        override_target(npu_lig_kl),
     ]
     config.model.vision_encoder = npu_packed_vision_attention(
         config.model.vision_encoder
@@ -125,7 +134,7 @@ def kimi_k3_1_pro_npu(
         parallelism=parallelism,
         activation_remat=None,
     )
-    npu_changes(config)
+    kimi_k3_1_npu_adapter(config)
     return config
 
 
@@ -206,5 +215,5 @@ def kimi_k3_1_reduced_npu(
         activation_remat=DefaultActivationRematConfig(),
         metrics=MetricsProcessor.Config(log_freq=1),
     )
-    npu_changes(config)
+    kimi_k3_1_npu_adapter(config)
     return config
