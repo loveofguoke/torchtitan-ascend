@@ -11,5 +11,6 @@
 | [DeepSeek V3](deepseek_v3.md) | 复用 TorchTitan DeepSeek V3 | [deepseek_v3.py](../../torchtitan_ascend_recipes/models/deepseek_v3.py) | debug packed 文本短程运行及 FSDP/TP/EP 配置 |
 | [DeepSeek V4](deepseek_v4.md) | 复用 TorchTitan DeepSeek V4 | [deepseek_v4.py](../../torchtitan_ascend_recipes/models/deepseek_v4.py) | debug packed 文本短程运行及 TP/EP/PP 配置 |
 | [DeepSeek V4.1](deepseek_v4_1.md) | 本地 DeepSeek V4.1 实现，复用上游组件 | [deepseek_v4_1.py](../../torchtitan_ascend_recipes/models/deepseek_v4_1.py) | debug packed 文本短程运行及 TP/EP 配置 |
+| [GPT-OSS](gpt-oss.md) | 本地 GPT-OSS 实现，复用上游组件 | [gpt_oss.py](../../torchtitan_ascend_recipes/models/gpt_oss.py) | debug packed 文本短程运行及 TP/EP 配置 |
 
 先完成[基础安装](../../INSTALL.md)，再按模型文档准备专用依赖和数据。配方组织、启动接口及旧模块路径迁移见[配方说明](../../torchtitan_ascend_recipes/README.md)。
