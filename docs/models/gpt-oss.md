@@ -8,9 +8,9 @@ GPT-OSS 使用带 per-head attention sinks 的注意力，奇偶层交替使用�
 
 | 模型规格 / flavor | 类型 | 上下文长度 / 输入尺寸 | MODULE | CONFIG | 默认数据 |
 |---|---|---|---|---|---|
-| `debugmodel` | MoE，8 专家、top-4、4 层 | 默认 2048 tokens | `torchtitan_ascend_recipes.models.gpt_oss` | `gpt_oss_debugmodel_npu` | 内置 C4 测试数据 |
+| `debugmodel` | MoE，8 专家、top-4、4 层 | 默认 2048 tokens | `torchtitan_ascend_recipes.models.gpt_oss` | `gpt_oss_debugmodel_npu` | torchtitan 内置 C4 测试数据 |
 
-debugmodel 为验收用迷你模型，具体参数见 [CONFIG 设置](../../torchtitan_ascend/recipes/gpt_oss.py)。
+debugmodel 为验收用迷你模型，具体参数见 [CONFIG 设置](../../torchtitan_ascend_recipes/models/gpt_oss.py)。
 
 ### 1.2 特性支持
 
