@@ -6,6 +6,7 @@
 |---|---|---|---|
 | [Qwen3](qwen3.md) | 复用 TorchTitan Qwen3 | [qwen3.py](../../torchtitan_ascend_recipes/models/qwen3.py) | debug 最小运行与配置派生 |
 | [Qwen3.5](qwen3_5.md) | 复用 TorchTitan Qwen3.5 | [qwen3_5.py](../../torchtitan_ascend_recipes/models/qwen3_5.py) | debug、0.8B 文本短程运行与自定义数据配置 |
+| [Qwen3.8](qwen3_8.md) | 复用 TorchTitan Qwen3.8 | [qwen3_8.py](../../torchtitan_ascend_recipes/models/qwen3_8.py) | debug 文本短程运行与配置派生 |
 | [Kimi K3](kimi_k3.md) | 复用 TorchTitan Kimi K3 | [kimi_k3.py](../../torchtitan_ascend_recipes/models/kimi_k3.py) | debug、自定义 7B 规格及 MoonEP 配置 |
 | [Kimi K3.1](kimi_k3_1.md) | 本地 Kimi K3.1 扩展，复用上游 Kimi 组件 | [kimi_k3_1.py](../../torchtitan_ascend_recipes/models/kimi_k3_1.py) | reduced 适配验证与 Pro 训练配置；完整 Pro 训练待验证 |
 | [DeepSeek V3](deepseek_v3.md) | 复用 TorchTitan DeepSeek V3 | [deepseek_v3.py](../../torchtitan_ascend_recipes/models/deepseek_v3.py) | debug packed 文本短程运行及 FSDP/TP/EP 配置 |

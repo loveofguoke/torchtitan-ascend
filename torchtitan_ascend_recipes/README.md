@@ -24,6 +24,6 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 
 ## 模块路径迁移
 
-原 `torchtitan_ascend.recipes.<model>` 已迁至 `torchtitan_ascend_recipes.models.<model>`，适用于 `qwen3`、`qwen3_5`、`kimi_k3`、`kimi_k3_1`、`deepseek_v3` 和 `deepseek_v4_1`。请更新启动脚本中的 `MODULE` 和自定义配方的 Python 导入；旧路径不提供转发。
+原 `torchtitan_ascend.recipes.<model>` 已迁至 `torchtitan_ascend_recipes.models.<model>`，适用于 `qwen3`、`qwen3_5`、`qwen3_8`、`kimi_k3`、`kimi_k3_1`、`deepseek_v3` 和 `deepseek_v4_1`。请更新启动脚本中的 `MODULE` 和自定义配方的 Python 导入；旧路径不提供转发。
 
 函数名、参数、默认配置以及 `ENTRYPOINT=torchtitan_ascend.train` 保持不变。新包随同一个 `torchtitan-ascend` 发行包安装；更新已有安装时按安装指南重新安装本项目，以确保新包可被导入。
