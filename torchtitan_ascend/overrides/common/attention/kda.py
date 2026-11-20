@@ -5,7 +5,7 @@
 """Ascend implementations of Kimi Delta Attention components.
 
 The model uses [1, T, H, D], with a singleton batch and packed tokens T.
-AscendC uses NTD, where N is the head count H, internally.
+The FLA interface uses TND for packed inputs and head-major saved caches.
 """
 
 from __future__ import annotations
@@ -37,20 +37,10 @@ def _l2norm(x):
     return (x_f * torch.rsqrt(x_f.pow(2).sum(-1, keepdim=True) + 1e-6)).type_as(x)
 
 
-def _to_ntd(x):
-    """Convert [1, T, H, ...] to packed [H, T, ...]."""
-    return x.squeeze(0).transpose(0, 1).contiguous()
-
-
-def _from_ntd(x):
-    """Restore packed [H, T, ...] to the model's [1, T, H, ...]."""
-    return x.transpose(0, 1).unsqueeze(0).contiguous()
-
-
 class AscendChunkKDAFunction(torch.autograd.Function):
     """Fused KDA forward/backward with Q/K L2Norm and beta sigmoid.
 
-    Backward supports head dimension 128 and consumes packed NTD intermediates.
+    Backward supports head dimension 128.
     """
 
     @staticmethod
@@ -89,23 +79,26 @@ class AscendChunkKDAFunction(torch.autograd.Function):
 
         ctx.num_heads = q.shape[2]
         ctx.g_in_dt, ctx.beta_in_dt = g.dtype, beta.dtype
-        q, k, v, g, beta = map(_to_ntd, (q, k, v, g, beta))
+        q, k, v, g, beta = (x.squeeze(0).contiguous() for x in (q, k, v, g, beta))
 
-        # The forward kernel exports normalized Q/K and their inverse norms.
-        q_n = torch.empty_like(q) if use_qk_l2norm_in_kernel else q
-        k_n = torch.empty_like(k) if use_qk_l2norm_in_kernel else k
+        # FLA exports normalized Q/K, their inverse norms and effective beta head-major.
+        q_head_shape = q.transpose(0, 1).shape
+        k_head_shape = k.transpose(0, 1).shape
+        beta_head_shape = beta.transpose(0, 1).shape
+        q_n = q.new_empty(q_head_shape) if use_qk_l2norm_in_kernel else q
+        k_n = k.new_empty(k_head_shape) if use_qk_l2norm_in_kernel else k
         q_rstd = (
-            torch.empty(q.shape[:-1], dtype=torch.float32, device=q.device)
+            torch.empty(q_head_shape[:-1], dtype=torch.float32, device=q.device)
             if use_qk_l2norm_in_kernel
             else None
         )
         k_rstd = (
-            torch.empty(k.shape[:-1], dtype=torch.float32, device=k.device)
+            torch.empty(k_head_shape[:-1], dtype=torch.float32, device=k.device)
             if use_qk_l2norm_in_kernel
             else None
         )
         beta_f = (
-            torch.empty_like(beta, dtype=torch.float32)
+            torch.empty(beta_head_shape, dtype=torch.float32, device=beta.device)
             if use_beta_sigmoid_in_kernel
             else beta
         )
@@ -116,7 +109,7 @@ class AscendChunkKDAFunction(torch.autograd.Function):
             v,
             g,
             beta,
-            layout="NTD",
+            layout="TND",
             initial_state=initial_state,
             output_final_state=output_final_state,
             cu_seqlens=cu_seqlens,
@@ -199,11 +192,17 @@ class AscendChunkKDAFunction(torch.autograd.Function):
         assert head_dim == 128, "NPU KDA backward requires head_dim == 128"
         from fla_npu.ops import ascendc
 
+        # Only the saved sigmoid output needs conversion to token-major.
+        beta_TH = (
+            beta_f.transpose(0, 1).contiguous()
+            if ctx.use_beta_sigmoid_in_kernel
+            else beta_f
+        )
         dq, dk, dv, db, dg, dh0, dA, dbias = ascendc.npu_chunk_kda_bwd(
             q_n,
             k_n,
             v,
-            beta_f,
+            beta_TH,
             gk,
             Aqk,
             Akk,
@@ -212,7 +211,7 @@ class AscendChunkKDAFunction(torch.autograd.Function):
             kg,
             v_new,
             h,
-            _to_ntd(do),
+            do.squeeze(0).contiguous(),
             float(ctx.scale),
             raw_g=g if ctx.use_gate_in_kernel else None,
             A_log=A_log,
@@ -231,13 +230,14 @@ class AscendChunkKDAFunction(torch.autograd.Function):
             implementation="optimized",
             q_rstd=q_rstd,
             k_rstd=k_rstd,
+            layout="TND",
         )
 
         # Apply the sigmoid derivative using the forward beta result.
         if ctx.use_beta_sigmoid_in_kernel:
-            db = db.float() * beta_f * (1 - beta_f)
+            db = db.float() * beta_TH * (1 - beta_TH)
 
-        dq, dk, dv, dg, db = map(_from_ntd, (dq, dk, dv, dg, db))
+        dq, dk, dv, dg, db = (x.unsqueeze(0) for x in (dq, dk, dv, dg, db))
 
         return (
             dq.to(q_n),

@@ -44,9 +44,12 @@ export FLA_NPU_SRC=/absolute/path/to/flash-linear-attention-npu
 
 git clone https://github.com/flashserve/flash-linear-attention-npu.git "$FLA_NPU_SRC"
 cd "$FLA_NPU_SRC"
-git checkout 7e39f9668eed285fc91cde0502f46cd48686a681
+git checkout 238a8ec002c45fe65ef956b17ed7c014153c1f42
 uv pip install -r requirements.txt pip setuptools wheel packaging
 ```
+
+该提交支持 KDA 前向和反向使用 `layout="TND"`。请使用同一份 FLA wheel 中的
+Python 接口、Stable ABI 库和 OPP。
 
 - 构建算子
 

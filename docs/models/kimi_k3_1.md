@@ -24,9 +24,9 @@ Kimi K3.1 使用 Kimi Delta Attention（KDA）和 DeepSeek Sparse Attention（DS
 
 ## 2. 环境安装
 
-按[精度验证环境](#6-精度验证)中的 Ascend 实测版本准备环境。使用 Linux aarch64、Ascend 950DT、CANN `9.2.1`、驱动 `26.2.0.b020` 和配套固件。Python、PyTorch、TorchNPU 和 Triton-Ascend 版本见该节环境表。复现实测环境时，Triton-Ascend launcher 使用 C++20。 [C++20 launcher 补丁](../../fixes/triton-ascend/TA-3-cxx20-launcher.patch)
+使用 Linux aarch64、Ascend 950DT、CANN `9.2.1`、驱动 `26.2.0.b020` 和配套固件。Python、PyTorch、TorchNPU 和 Triton-Ascend 版本见[精度验证环境](#6-精度验证)。复现实测环境时，Triton-Ascend launcher 使用 C++20。 [C++20 launcher 补丁](../../fixes/triton-ascend/TA-3-cxx20-launcher.patch)
 
-FLA NPU 按 Kimi K3 指南构建和配置 OPP，使用 `ascend950` 构建目标及实测提交 `7e39f9668eed285fc91cde0502f46cd48686a681`。精度验证使用 `FLA_NPU_OPS=causal_conv1d,causal_conv1d_bwd,chunk_kda_fwd,chunk_kda_bwd`。 [FLA NPU 安装](kimi_k3.md#安装-fla-npu)
+FLA NPU 使用 Kimi K3 安装指南固定的提交和 `ascend950` 构建目标，并按该指南配置 OPP。 [FLA NPU 安装](kimi_k3.md#安装-fla-npu)
 
 ### 构建 SFAG 算子
 
@@ -91,4 +91,4 @@ ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NGPU=8 \
 
 验证使用从 Pro 配方缩小的 224,414,768 参数图文模型。用官方 Pro tokenizer 将 CC12M 图文前缀和 C4 文本准备成冻结输入，每步包含 2048 个有效 token。两端使用 DSA Top-K 128、BF16 和严格确定性（`warn_only=False`），加载同一份随机初态和冻结输入，各训练 1000 步。以 H100 loss 为分母，逐步相对差为 −0.159379% 至 +0.142395%，平均绝对相对差为 0.02472833%。[PR #178 实测记录](https://gitcode.com/Ascend/torchtitan-ascend/pull/178)
 
-重建该对照需取得原实验的 TorchNPU wheel、Triton‑Ascend wheel 及 C++20 launcher 补丁、实验入口和冻结输入文件。GPU 镜像实测记录保留了标签，复现时核对表中的实际版本。
+重建该对照需使用原实验的代码和表中记录的依赖。原实验构建 FLA wheel 时使用 `FLA_NPU_OPS=causal_conv1d,causal_conv1d_bwd,chunk_kda_fwd,chunk_kda_bwd`。还需取得原实验的 TorchNPU wheel、Triton‑Ascend wheel 及 C++20 launcher 补丁、实验入口和冻结输入文件。GPU 镜像实测记录保留了标签，复现时核对表中的实际版本。

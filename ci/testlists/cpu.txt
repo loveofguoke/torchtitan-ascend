@@ -1548,3 +1548,9 @@ tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py::test_bri
 tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py::test_bridge_returns_none_when_it_cannot_extend_safely
 tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py::test_bridge_synthesizes_a_close_for_a_truncated_completion
 tests/unit_tests/cpu/models/muse_glimmer/test_muse_glimmer_renderer.py::test_rejects_incompatible_tokenizer
+
+# KDA backward layout with FLA.
+tests/unit_tests/cpu/models/common/test_kda_backward_layout.py::test_kda_backward_layout[raw-beta-raw-qk]
+tests/unit_tests/cpu/models/common/test_kda_backward_layout.py::test_kda_backward_layout[raw-beta-normalized-qk]
+tests/unit_tests/cpu/models/common/test_kda_backward_layout.py::test_kda_backward_layout[sigmoid-beta-raw-qk]
+tests/unit_tests/cpu/models/common/test_kda_backward_layout.py::test_kda_backward_layout[sigmoid-beta-normalized-qk]
