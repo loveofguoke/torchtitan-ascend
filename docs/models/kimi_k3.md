@@ -223,3 +223,11 @@ def debug_ep8():
 
 - 融合 permute/unpermute 的 all-to-all dispatcher 使用 `--override torchtitan_ascend.overrides.common.moe.token_dispatcher.npu_token_dispatcher`。
 - MC2 routed experts 使用 `--override torchtitan_ascend.overrides.common.moe.mc2_routed_experts.npu_mc2_routed_experts`。
+
+MC2 默认关闭 routed-input 重放。需要用额外的反向通信减少激活保存量时，将上面的 MC2 参数替换为：
+
+```bash
+--override 'torchtitan_ascend.overrides.common.moe.mc2_routed_experts.npu_mc2_routed_experts={"recompute_routed_input":true}'
+```
+
+该选项仅在 EP 大于 1 且 remat 策略保留 dispatch 区域的层生效。反向为计算 `w13` 权重梯度额外执行一次 AllToAll。Ascend 950 的 MC2 combine 将 token 和路由分数按各自的 dtype 传给算子，两者均支持 BF16、FP16 和 FP32。

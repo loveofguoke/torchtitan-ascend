@@ -452,6 +452,9 @@ tests/unit_tests/cpu/distributed/test_expert_parallel.py::TestPermute::test_unif
 tests/unit_tests/cpu/distributed/test_expert_parallel.py::TestPermute::test_zero_tokens_for_some_experts
 tests/unit_tests/cpu/distributed/test_expert_parallel.py::TestTokenDispatcherModule::test_dispatcher_has_no_checkpoint_state
 
+# MC2 routed-input replay permutation and split ordering.
+tests/unit_tests/cpu/models/common/test_mc2_routed_input_replay.py
+
 # --- tests/unit_tests/cpu/models/common/test_aux_loss.py (11 cases) ---
 tests/unit_tests/cpu/models/common/test_aux_loss.py::TestBatchWiseLoadBalanceLoss::test_activation_checkpoint_replay_does_not_advance_rolling_counts
 tests/unit_tests/cpu/models/common/test_aux_loss.py::TestBatchWiseLoadBalanceLoss::test_rolling_value_and_gradient_match_reference
@@ -464,6 +467,9 @@ tests/unit_tests/cpu/models/common/test_aux_loss.py::TestMicrobatchWiseLoadBalan
 tests/unit_tests/cpu/models/common/test_aux_loss.py::TestMicrobatchWiseLoadBalanceLoss::test_masked_routing_rows_do_not_affect_aux_loss
 tests/unit_tests/cpu/models/common/test_aux_loss.py::TestMicrobatchWiseLoadBalanceLoss::test_no_double_count_with_remat_checkpointing
 tests/unit_tests/cpu/models/common/test_aux_loss.py::TestMicrobatchWiseLoadBalanceLoss::test_value_and_gradient_match_reference
+
+# MC2 combine/remat and mixed dtype token restoration.
+tests/unit_tests/cpu/models/common/test_mc2_combine.py
 
 # --- tests/unit_tests/cpu/models/common/test_dist_moe.py (33 cases) ---
 tests/unit_tests/cpu/models/common/test_dist_moe.py::test_runtime_close_releases_context_and_module_bindings

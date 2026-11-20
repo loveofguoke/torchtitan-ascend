@@ -13,9 +13,12 @@ from torchtitan.models.common.linear import GroupedLinear
 from torchtitan.models.common.moe import RoutedExperts
 from torchtitan.models.common.moe.token_dispatcher import AllToAllTokenDispatcher
 
+from torchtitan_ascend.device import get_device_name
+
 from torchtitan_ascend.overrides.common.moe.mc2_gmm import (
     all2all_grouped_matmul,
     grouped_matmul_all2all,
+    RoutedInputReplay,
 )
 from torchtitan_ascend.overrides.common.moe.permute import permute, unpermute
 
@@ -43,7 +46,13 @@ class AscendMC2RoutedExperts(RoutedExperts):
 
     @dataclass(kw_only=True, slots=True)
     class Config(RoutedExperts.Config):
-        pass
+        # Apply only on layers whose dispatch region is retained by torch_remat.
+        recompute_routed_input: bool = False
+
+    def __init__(self, config: Config):
+        super().__init__(config)
+        self.recompute_routed_input = config.recompute_routed_input
+        self.allow_mixed_dtype = get_device_name().startswith("Ascend950")
 
     def forward(
         self,
@@ -75,6 +84,7 @@ class AscendMC2RoutedExperts(RoutedExperts):
                 "MC2 does not support output_postprocess because w2 and return communication are fused."
             )
 
+        recompute_dispatch = self.token_dispatcher.remat_should_recompute("dispatch")
         (
             gate_up_R2F,
             local_inverse_indices_N,
@@ -84,9 +94,13 @@ class AscendMC2RoutedExperts(RoutedExperts):
         ) = remat.region(
             self._dispatch_w13,
             self.token_dispatcher.remat_region_name("dispatch"),
-            recompute=self.token_dispatcher.remat_should_recompute("dispatch"),
+            recompute=recompute_dispatch,
         )(
-            x_TD, topk_expert_ids_TK, self.w13.weight, num_local_tokens_per_expert_E
+            x_TD,
+            topk_expert_ids_TK,
+            self.w13.weight,
+            num_local_tokens_per_expert_E,
+            replay_routed_input=self.recompute_routed_input and not recompute_dispatch,
         )
         remat.recompute_needs_tensor(gate_up_R2F, offsets_e)
 
@@ -115,6 +129,8 @@ class AscendMC2RoutedExperts(RoutedExperts):
         topk_expert_ids_TK: torch.Tensor,
         weight_e2FD: torch.Tensor,
         num_local_tokens_per_expert_E: torch.Tensor,
+        *,
+        replay_routed_input: bool,
     ) -> tuple[torch.Tensor, ...]:
         # Count exchange and permutations must be saved with the fused collective.
         ep_mesh = spmd_sparse_mesh()["ep"]
@@ -125,6 +141,11 @@ class AscendMC2RoutedExperts(RoutedExperts):
         num_local_experts = num_experts // ep_size
         send_counts = num_local_tokens_per_expert_E
         routed_input_ND, local_inverse_indices_N = permute(x_TD, topk_expert_ids_TK)
+        replay = (
+            RoutedInputReplay(x_TD, local_inverse_indices_N, topk_expert_ids_TK.size(1))
+            if replay_routed_input
+            else None
+        )
 
         with maybe_set_sparse_mesh():
             num_global_tokens_per_expert = torch.zeros(
@@ -147,6 +168,7 @@ class AscendMC2RoutedExperts(RoutedExperts):
                     group=ep_group,
                     send_counts=send_counts,
                     recv_counts=recv_counts,
+                    replay_routed_input=replay,
                 ),
             )
             gate_up_R2F = gate_up_R2F.unflatten(-1, (2, self.w13.out_features))
@@ -176,6 +198,7 @@ class AscendMC2RoutedExperts(RoutedExperts):
             routed_output_ND,
             local_inverse_indices_N,
             probs=topk_scores_TK,
+            allow_mixed_dtype=self.allow_mixed_dtype,
         )
 
 
@@ -185,11 +208,17 @@ class AscendMC2RoutedExperts(RoutedExperts):
     description="Ascend MC2 routed experts with fused communication and grouped matmul",
 )
 def npu_mc2_routed_experts(
-    cfg: RoutedExperts.Config,
+    cfg: RoutedExperts.Config, *, recompute_routed_input: bool = False
 ) -> AscendMC2RoutedExperts.Config:
     """Replace the parent config while retaining its existing child configs.
 
     Activate this instead of the token-dispatcher override: TorchTitan rejects
     separate overrides claiming a parent and its descendant in the same tree.
+    On layers that retain dispatch, recompute_routed_input replays token
+    exchange and reordering for w13 weight gradients.
     """
-    return derive(cfg, AscendMC2RoutedExperts.Config)
+    return derive(
+        cfg,
+        AscendMC2RoutedExperts.Config,
+        recompute_routed_input=recompute_routed_input,
+    )
