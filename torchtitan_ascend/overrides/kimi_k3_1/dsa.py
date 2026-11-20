@@ -183,7 +183,7 @@ class AscendDSALatentAttention(KimiDSALatentAttention):
             k_compact_TC = torch.cat(
                 (kv_latent_TL.detach(), k_shared_TR.detach()), dim=-1
             )
-        return out_THL.float(), lse_TH, q_compact_THC, k_compact_TC
+        return out_THL, lse_TH, q_compact_THC, k_compact_TC
 
 
 @override(

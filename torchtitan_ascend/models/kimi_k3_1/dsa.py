@@ -314,7 +314,9 @@ class KimiDSALatentAttention(InnerAttention):
         selected_values_TKL = _gather_selected_rows(
             kv_latent_TL.float(), topk_indices_TK
         )
-        out_latent_THL = torch.einsum("thk,tkl->thl", probs_THK, selected_values_TKL)
+        out_latent_THL = torch.einsum(
+            "thk,tkl->thl", probs_THK, selected_values_TKL
+        ).to(q_latent_THL.dtype)
         return out_latent_THL, lse_TH, q_compact_THC, k_compact_TC
 
     def _apply_aux_loss(
@@ -387,9 +389,7 @@ class KimiDSALatentAttention(InnerAttention):
                     topk_indices_TK,
                     attention_metadata,
                 )
-                out_THV = torch.einsum(
-                    "thl,hvl->thv", out_latent_THL, w_v_HVL.float()
-                ).to(q_THE.dtype)
+                out_THV = torch.einsum("thl,hvl->thv", out_latent_THL, w_v_HVL)
                 if self.training and self.aux_loss is not None:
                     if aux_loss_denominator is None:
                         raise ValueError(
