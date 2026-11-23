@@ -11,19 +11,26 @@ from functools import wraps
 from torchtitan_ascend.patches import patch
 
 
-@patch(target="torch_npu._inductor.select_algorithm:NPUTritonTemplate.generate", deferred=True)
+@patch(
+    target="torch_npu._inductor.select_algorithm:NPUTritonTemplate.generate",
+    deferred=True,
+)
 def bounded_backward_mask(original):
     @wraps(original)
     def generate(self, *args, **kwargs):
         if self.name == "flex_attention_bwd_mask_compact" and not getattr(
             self, "_torchtitan_ascend_bounded_mask", False
         ):
-            from torch_npu._inductor.kernel.flexattention_template import compute_bwd_sparse_mask_kernel_compact
+            from torch_npu._inductor.kernel.flexattention_template import (
+                compute_bwd_sparse_mask_kernel_compact,
+            )
 
             source = compute_bwd_sparse_mask_kernel_compact
             bounded_source = source.replace(
                 "m = offs_m[:, None]", "m = tl.minimum(offs_m[:, None], q_len - 1)"
-            ).replace("n = offs_n[None, :]", "n = tl.minimum(offs_n[None, :], kv_len - 1)")
+            ).replace(
+                "n = offs_n[None, :]", "n = tl.minimum(offs_n[None, :], kv_len - 1)"
+            )
             if bounded_source != source:
                 # The output mask alone cannot protect captured reads such as
                 # document_id[m]. Bound user-mask inputs before those reads;

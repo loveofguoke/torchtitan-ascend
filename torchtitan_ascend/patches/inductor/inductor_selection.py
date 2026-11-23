@@ -9,28 +9,47 @@ from torchtitan_ascend.patches import patch
 
 def _restore_deterministic_selection():
     from torch._inductor import config
-    from torch._inductor.select_algorithm import AlgorithmSelectorCache, TritonTemplateCaller
+    from torch._inductor.select_algorithm import (
+        AlgorithmSelectorCache,
+        TritonTemplateCaller,
+    )
 
     original = AlgorithmSelectorCache.__call__
     # Newer NPU backends can restore this branch themselves. Do not replace
     # their policy, the native PyTorch selector, or our own installed wrapper.
-    if not original.__module__.startswith("torch_npu.") or "pick_deterministic_choice" in original.__code__.co_names:
+    if (
+        not original.__module__.startswith("torch_npu.")
+        or "pick_deterministic_choice" in original.__code__.co_names
+    ):
         return
-    compile_only_selection = "_nobench_select_first_compilable" in inspect.getsource(original)
+    compile_only_selection = "_nobench_select_first_compilable" in inspect.getsource(
+        original
+    )
 
     @wraps(original)
     def select(self, name, choices, input_nodes, layout, *args, **kwargs):
         if config.deterministic and layout.device.type == "npu":
             usable = [choice for choice in choices if choice is not None]
-            if usable and compile_only_selection and all(isinstance(candidate, TritonTemplateCaller) for candidate in usable):
+            if (
+                usable
+                and compile_only_selection
+                and all(
+                    isinstance(candidate, TritonTemplateCaller) for candidate in usable
+                )
+            ):
                 # Also validate a sole deferred-epilogue template: selecting an
                 # uncompiled tile can defer a buffer overflow to kernel launch.
                 absent = object()
-                previous = [getattr(candidate, "_nobench_select_first_compilable", absent) for candidate in usable]
+                previous = [
+                    getattr(candidate, "_nobench_select_first_compilable", absent)
+                    for candidate in usable
+                ]
                 try:
                     for candidate in usable:
                         candidate._nobench_select_first_compilable = True
-                    return original(self, name, usable, input_nodes, layout, *args, **kwargs)
+                    return original(
+                        self, name, usable, input_nodes, layout, *args, **kwargs
+                    )
                 finally:
                     for candidate, value in zip(usable, previous, strict=True):
                         if value is absent:
@@ -47,7 +66,10 @@ def _restore_deterministic_selection():
     AlgorithmSelectorCache.__call__ = select
 
 
-@patch(target="torch_npu._inductor.select_algorithm:patch_algorithm_selector", deferred=True)
+@patch(
+    target="torch_npu._inductor.select_algorithm:patch_algorithm_selector",
+    deferred=True,
+)
 def apply(original):
     _restore_deterministic_selection()
 

@@ -4,13 +4,13 @@
 
 训练入口在导入 TorchTitan 前调用 `torchtitan_ascend.setup()`，由 `apply_all()` 发现并安装修复。仅导入本包不会安装修复。Python API 使用者应在构造 Trainer 前调用 `torchtitan_ascend.setup()`。CI 的 CPU 和 A2 测试均在执行 pytest 的同一 Python 进程中调用 `setup()`。
 
-自动发现按模块名排序，仅扫描本目录的公开模块和包；跳过 `registry.py` 及以 `_` 开头的模块。注册时不导入目标模块，安装时才解析目标。修复必须先于调用方保存原函数引用。
+自动发现按模块名排序，仅扫描本目录的公开模块和包；跳过 `registry.py`。以 `_` 开头的模块由所属补丁自行导入。注册时不导入目标模块，安装时才解析目标。修复必须先于调用方保存原函数引用。
 
 `deferred=True` 在目标模块加载完成、返回调用方前安装修复；已加载的目标立即安装。此选项用于避免提前加载可选编译后端，不向独立 Python 子进程传播修复。
 
 ## 声明修复
 
-在公开模块或包的 `__init__.py` 中使用 `@patch(target="module:function", kind="replace")` 声明目标，无需修改注册表。被装饰的函数接收原函数并返回替代函数，示例见 [varlen_attention](varlen_attention/__init__.py)。
+在根目录或分类目录的公开模块，或分类内补丁包的 `__init__.py` 中使用 `@patch(target="module:function", kind="replace")` 声明目标，无需修改注册表。被装饰的函数接收原函数并返回替代函数，示例见 [varlen_attention](common/varlen_attention/__init__.py)。
 
 - `wrap`：返回调用 `original` 的包装函数，原函数必须存在。
 - `replace`：返回替代实现，原函数必须存在。
@@ -27,24 +27,24 @@
 
 ## 当前修复
 
-| 修复 | 当前行为 |
-| --- | --- |
-| [attention_gym.py](attention_gym.py) | 对可选 CUDA 后端缺失复用 Attention Gym 的占位实现；实际构造缺失内核及基础依赖缺失时仍报错。 |
-| [gather_attn.py](gather_attn.py) | NPU 上将 packed gather attention 的 KV advanced indexing 改为展平表的 F.embedding 查表：前向避开 AI_CPU Index 慢算子，反向走 embedding_dense_backward 的 index_add 路径；数值与上游 reference 一致，非 NPU 设备沿用原实现。 |
-| [causal_conv1d_spmd.py](causal_conv1d_spmd.py) | 延迟注册本地因果卷积的 SPMD 类型规则。 |
-| [flex_attention.py](flex_attention.py) | 对反向 compact-mask 的 captured tensor 读取限制有效索引；原生有效位置和最终 mask 保持不变。 |
-| [inductor_selection.py](inductor_selection.py) | 恢复 NPU 严格确定性下的原生候选策略，并复用 compile-only 校验选择可编译 tile。 |
-| [fused_swiglu.py](fused_swiglu.py) | 为上游 SwiGLU 前后向算子补充 PrivateUse1 派发。 |
-| [storage.py](storage.py) | 使用 NPUStorageImpl 构造外部 storage，包括 remat 的空数据占位对象；依赖安装阶段的 storage 补丁。 |
-| [inductor.py](inductor.py) | 复用 NPU scheduler 构造，限制 sub-parent epilogue，并适配 reduction 接口。 |
-| [inductor_determinism.py](inductor_determinism.py) | 对确定性归约筛选配置并禁用计时选优缓存。 |
-| [inductor_static_launch.py](inductor_static_launch.py) | AutoBlockify NPU 内核使用 Triton 标准启动器，保留编译及确定性配置，避免静态启动器直接发射逻辑网格。 |
-| [rope.py](rope.py) | 将复数 RoPE 缓存拆分索引后重建，兼容不支持 complex64 索引的 NPU 路径。 |
-| [pipeline_parallel.py](pipeline_parallel.py) | 在 NPU 上复用上游分布式初始化，并在构造 PipelineStage 前关闭独立的 PP per-edge 通信组（`pipeline_per_edge_p2p`），使用共享 HCCL 通信组；其他设备和进程组已初始化路径沿用上游实现。1F1B、Interleaved1F1B 和 PP/FSDP 组合已在 NPU 上完成短程拉起验证，范围见下文。 |
-| [sort_layout.py](sort_layout.py) | 为当前固定的 torch_npu 版本约束稳定排序 fallback 的输入布局，避免错误读取 BlockMask 反向索引。 |
-| [flex_attention_determinism.py](flex_attention_determinism.py) | 启用严格确定性时，Flex 从首次调用尝试动态形状编译，并使用固定的缓存版本标记隔离修复前的图。 |
-| [varlen_attention](varlen_attention/__init__.py) | 将公共 varlen API 连接到 NPU 前后向，按 Q/K 配对过滤空文档槽，保留文档边界及参数校验。 |
-| [deepep.py](deepep.py) | 在 TrainingEngine 关闭阶段释放 DeepEP EPBuffer pool，先于进程组销毁；未启用 DeepEP 后端时为空操作，不导入 `deep_ep`。 |
+| 分类 | 修复 | 当前行为 |
+| --- | --- | --- |
+| `common/` | [attention_gym.py](common/attention_gym.py) | 对可选 CUDA 后端缺失复用 Attention Gym 的占位实现；实际构造缺失内核及基础依赖缺失时仍报错。 |
+| `common/` | [gather_attn.py](common/gather_attn.py) | NPU 上将 packed gather attention 的 KV advanced indexing 改为展平表的 F.embedding 查表：前向避开 AI_CPU Index 慢算子，反向走 embedding_dense_backward 的 index_add 路径；数值与上游 reference 一致，非 NPU 设备沿用原实现。 |
+| `common/` | [rope.py](common/rope.py) | 将复数 RoPE 缓存拆分索引后重建，兼容不支持 complex64 索引的 NPU 路径。 |
+| `common/` | [varlen_attention](common/varlen_attention/__init__.py) | 将公共 varlen API 连接到 NPU 前后向，按 Q/K 配对过滤空文档槽，保留文档边界及参数校验。 |
+| `common/` | [fused_swiglu.py](common/fused_swiglu.py) | 为上游 SwiGLU 前后向算子补充 PrivateUse1 派发。 |
+| `inductor/` | [flex_attention.py](inductor/flex_attention.py) | 对反向 compact-mask 的 captured tensor 读取限制有效索引；原生有效位置和最终 mask 保持不变。 |
+| `inductor/` | [inductor_selection.py](inductor/inductor_selection.py) | 恢复 NPU 严格确定性下的原生候选策略，并复用 compile-only 校验选择可编译 tile。 |
+| `inductor/` | [inductor.py](inductor/inductor.py) | 复用 NPU scheduler 构造，限制 sub-parent epilogue，并适配 reduction 接口。 |
+| `inductor/` | [inductor_determinism.py](inductor/inductor_determinism.py) | 对确定性归约筛选配置并禁用计时选优缓存。 |
+| `inductor/` | [inductor_static_launch.py](inductor/inductor_static_launch.py) | AutoBlockify NPU 内核使用 Triton 标准启动器，保留编译及确定性配置，避免静态启动器直接发射逻辑网格。 |
+| `inductor/` | [sort_layout.py](inductor/sort_layout.py) | 为当前固定的 torch_npu 版本约束稳定排序 fallback 的输入布局，避免错误读取 BlockMask 反向索引。 |
+| `inductor/` | [flex_attention_determinism.py](inductor/flex_attention_determinism.py) | 启用严格确定性时，Flex 从首次调用尝试动态形状编译，并使用固定的缓存版本标记隔离修复前的图。 |
+| 根目录 | [storage.py](storage.py) | 使用 NPUStorageImpl 构造外部 storage，包括 remat 的空数据占位对象；依赖安装阶段的 storage 补丁。 |
+| `distributed/` | [causal_conv1d_spmd.py](distributed/causal_conv1d_spmd.py) | 延迟注册本地因果卷积的 SPMD 类型规则。 |
+| `distributed/` | [pipeline_parallel.py](distributed/pipeline_parallel.py) | 在 NPU 上复用上游分布式初始化，并在构造 PipelineStage 前关闭独立的 PP per-edge 通信组（`pipeline_per_edge_p2p`），使用共享 HCCL 通信组；其他设备和进程组已初始化路径沿用上游实现。1F1B、Interleaved1F1B 和 PP/FSDP 组合已在 NPU 上完成短程拉起验证，范围见下文。 |
+| `distributed/` | [deepep.py](distributed/deepep.py) | 在 TrainingEngine 关闭阶段释放 DeepEP EPBuffer pool，先于进程组销毁；未启用 DeepEP 后端时为空操作，不导入 `deep_ep`。 |
 
 ### 因果卷积 SPMD 类型规则
 
@@ -57,10 +57,6 @@
 上游 `torchtitan_recipes.overrides.fused_swiglu` 加载后，为 `silu_and_mul_op`
 和 `silu_and_mul_backward_op` 注册 PrivateUse1 内核，分别复用上游 Triton 前后向实现。
 沿用 packed `gate_up [..., 2, F]` 接口及已有的 fake、autograd 和 SPMD 规则。
-
-### NPU 编译确定性
-
-Triton experimental 的 reduction 和 persistent reduction 在 metadata 请求确定性时，使用 PyTorch 的配置筛选函数并禁用计时选优缓存。普通归约和 pointwise 保持原生逻辑。
 
 ### NPU 稳定排序布局
 
