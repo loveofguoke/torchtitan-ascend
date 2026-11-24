@@ -34,6 +34,7 @@
 | `common/` | [rope.py](common/rope.py) | 将复数 RoPE 缓存拆分索引后重建，兼容不支持 complex64 索引的 NPU 路径。 |
 | `common/` | [varlen_attention](common/varlen_attention/__init__.py) | 将公共 varlen API 连接到 NPU 前后向，按 Q/K 配对过滤空文档槽，保留文档边界及参数校验。 |
 | `common/` | [fused_swiglu.py](common/fused_swiglu.py) | 为上游 SwiGLU 前后向算子补充 PrivateUse1 派发。 |
+| `inductor/` | [collectives.py](inductor/collectives.py) | 复用 PyTorch 原生 collective/wait lowering，保留异步通信缓冲区的读写依赖。 |
 | `inductor/` | [flex_attention.py](inductor/flex_attention.py) | 对反向 compact-mask 的 captured tensor 读取限制有效索引；原生有效位置和最终 mask 保持不变。 |
 | `inductor/` | [inductor_selection.py](inductor/inductor_selection.py) | 恢复 NPU 严格确定性下的原生候选策略，并复用 compile-only 校验选择可编译 tile。 |
 | `inductor/` | [inductor.py](inductor/inductor.py) | 复用 NPU scheduler 构造，限制 sub-parent epilogue，并适配 reduction 接口。 |
@@ -57,6 +58,12 @@
 上游 `torchtitan_recipes.overrides.fused_swiglu` 加载后，为 `silu_and_mul_op`
 和 `silu_and_mul_backward_op` 注册 PrivateUse1 内核，分别复用上游 Triton 前后向实现。
 沿用 packed `gate_up [..., 2, F]` 接口及已有的 fake、autograd 和 SPMD 规则。
+
+### Collective 缓冲区生命周期
+
+此补丁适用于 torch_npu `1a25e6b` 的 Triton experimental 后端。首次激活编译后端前调用 `setup()`。更新补丁后，首次编译使用空的 `TORCHINDUCTOR_CACHE_DIR`。
+
+升级到包含上游修复的版本后，跑通多卡 collective/wait 和 TP loss 回归即可移除补丁。[Ascend/pytorch !48875](https://gitcode.com/Ascend/pytorch/merge_requests/48875)
 
 ### NPU 稳定排序布局
 
