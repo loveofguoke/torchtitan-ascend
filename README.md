@@ -97,6 +97,8 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 
 完整列表见[模型与配方索引](docs/models/README.md)，包含模型文档、实现来源、配方源码和用途。具体运行条件、限制与验证证据见对应模型文档及公开评审记录；现有配方不代表完整训练或所有并行组合已完成验证。
 
+- [GLM-5](docs/models/glm5.md)
+
 ## 文档导航
 
 **使用与验证**
