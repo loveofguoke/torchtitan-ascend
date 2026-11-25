@@ -1,36 +1,50 @@
 # GLM-5
 
-## 安装
+## 模型概述
 
-先完成[基础安装](../../INSTALL.md)。GLM-5.2/5.3 的结构、配置、并行化和 checkpoint
+GLM-5.2/5.3 的结构、配置、并行化和 checkpoint
 映射位于 `torchtitan_ascend.models.glm5`，复用固定 TorchTitan
 0.4.0（`45e33cd413b64cb37a7840cfd3c9765d3c639ae1`）的 MLA、router、MTP 和训练组件。
 GLM 上游化工作见 [TorchTitan PR #5578](https://github.com/pytorch/torchtitan/pull/5578)。
 
-NPU DSA 实现位于 `torchtitan_ascend/overrides/glm5_dsa.py`，由 GLM NPU recipe
-显式启用。模型构建前替换 GLM attention Config，并在工厂内组装所需的 RoPE 和 indexer。
-不修改 PyTorch、TorchNPU 或其他模型的全局调用路径。
+NPU recipe 使用融合 DSA，实现位于 `torchtitan_ascend/overrides/glm5_dsa.py`。
 
 ## 训练配置
 
 配置模块为 `torchtitan_ascend_recipes.models.glm5`。
 
-| CONFIG | 模型 |
-|---|---|
-| `glm5_2_debugmodel_npu` | GLM-5.2 debug |
-| `glm5_2_debugmodel_mtp_npu` | GLM-5.2 debug + MTP |
-| `glm5_2_scaled_debugmodel_npu` | GLM-5.2 scaled debug |
-| `glm5_3_debugmodel_npu` | GLM-5.3 debug |
-| `glm5_3_debugmodel_mtp_npu` | GLM-5.3 debug + MTP |
-| `glm5_3_scaled_debugmodel_npu` | GLM-5.3 scaled debug |
+| CONFIG | 模型 | 默认上下文长度 | 每 DP rank 的 microbatch tokens |
+|---|---|---:|---:|
+| `glm5_2_debugmodel_npu` | GLM-5.2 debug | 128 | 256 |
+| `glm5_2_debugmodel_mtp_npu` | GLM-5.2 debug + MTP | 128 | 256 |
+| `glm5_2_scaled_debugmodel_npu` | GLM-5.2 scaled debug | 4096 | 8192 |
+| `glm5_3_debugmodel_npu` | GLM-5.3 debug | 128 | 256 |
+| `glm5_3_debugmodel_mtp_npu` | GLM-5.3 debug + MTP | 128 | 256 |
+| `glm5_3_scaled_debugmodel_npu` | GLM-5.3 scaled debug | 4096 | 8192 |
 
 `glm5_debugmodel_npu` 是 `glm5_2_debugmodel_npu` 的兼容名称。默认使用 BF16、
-上游 tokenizer 和 C4 测试数据，上下文长度 128，每 DP rank 的 microbatch 为
-256 tokens，共训练 10 步。配置随机初始化模型且不保存检查点，完整训练需配置实际数据、
+上游 tokenizer 和 C4 测试数据，共训练 10 步。配置随机初始化模型且不保存检查点，完整训练需配置实际数据、
 学习率计划、训练步数和 checkpoint。
 
 Debug 配置保留小 hidden size 和层数，attention 使用融合算子要求的 512 维 latent KV、
 64 维 RoPE、128 维 indexer 和 32 个 attention heads。
+
+## 支持范围
+
+| 特性 | 配置 |
+|---|---|
+| 混合精度 | BF16 参数与前向计算，FP32 梯度归约 |
+| 数据并行 | DDP、FSDP2、HSDP |
+| 模型并行 | TP/SP、CP、PP、EP 及组合拓扑，见下方精度表 |
+| 执行模式 | Eager、Inductor + Ascend-Triton、Inductor + DVM |
+| 重计算 | 默认重计算、全重计算 |
+| Indexer 训练 | warmup、sparse、frozen |
+| Checkpoint | Hugging Face 权重映射、warmup 到 sparse 的模型权重交接 |
+
+## 安装、数据与 Tokenizer
+
+先完成[基础安装](../../INSTALL.md)及[训练环境加载](../../INSTALL.md#运行验证)。
+Debug 配方使用 TorchTitan 源码自带的 C4 测试数据和 tokenizer，无需额外下载。
 
 ## 两阶段训练
 
@@ -103,7 +117,6 @@ Recipe 使用上游 `DefaultActivationRematConfig` 和模型的局部编译默�
 Trainer 前显式设置 `config.model.local_compile_regions = ["loss", "fused_binary_activation"]`。
 需要全重计算时，从 `torchtitan.distributed.activation_remat` 导入 `FullActivationRematConfig`，
 在构建 Trainer 前设置 `config.activation_remat = FullActivationRematConfig()`；设为 `None` 关闭重计算。
-融合算子的图编译和各并行组合需分别验证，短程训练通过不代表长期收敛或所有拓扑通过。
 
 ## Ascend 融合算子
 
@@ -121,8 +134,7 @@ weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention B
 
 当前固定 CANN 栈的约束：
 
-- 硬件型号支持 Ascend 910B / Atlas A2、Ascend 910_93 / Atlas A3 和 Ascend 950 / Atlas A5。
-  A5 的实测软件版本与验证范围见下文。
+- 算子构造允许 Ascend 910B、Ascend 910_93 和 Ascend 950；下方精度数据来自 Ascend 950。
 - latent KV 维度为 512，RoPE 维度为 64，indexer head dim 为 128。
 - Indexer KL 使用 32、64 或 128 个全局 attention heads，以及 8、16、32 或 64 个
   indexer heads。TP 局部 head 数不作为完整教师分布。
@@ -137,22 +149,41 @@ weights。模型执行不构造 Q×K 的 dense legality mask 或 FlexAttention B
 - Packed-document 元数据表达有效 token 和累计序列长度；padding query 的输出为零。
 
 接口规格见 [OpPlugin 文档](https://gitcode.com/Ascend/op-plugin/tree/master/docs/zh/custom_APIs/torch_npu)。
-固定栈的实际前后向验证优先于其他版本接口文档中的能力说明。
 
 主 MLA 和 indexer 的 RoPE 直接沿用上游 `ComplexRoPE`。A5 的 LightningIndexer
 要求 Q、K 和 mixing weights 使用相同 dtype，因此仅在离散 top-k 选择调用前转换
 weights；参数投影和 KL 目标继续使用 FP32 weights。A2/A3 保留 FP32 选择输入。
 选择权重的量化可能改变接近的 top-k 边界，不保证与 FP32 选择逐项一致。
-参数初始化沿用上游 `torch.nn.init.trunc_normal_` 等配置。
-TP vocabulary-parallel cross entropy 同样沿用 TorchTitan 上游实现。
 
-融合算子的 A5 验证使用 Ascend 950、CANN 9.2.0、PyTorch `2.15.0+cpu`、
-torch_npu `1a25e6b`、TorchTitan `edde21fb` 环境完成组件 loss/梯度对照和
-BF16 debug 短程训练验证。验证覆盖 SelectiveAC、FullAC、局部编译，以及
-FSDP2、TP2、CP2 和 TP2×CP2 的已测组合。TorchTitan 0.4.0 的接口迁移已增加 CPU 回归，
-设备训练需在该固定版本下重新验证。
+## 精度对齐
 
-## 验证
+GLM-5.2 debug，BF16 eager，上下文长度 128，每步 8192 tokens，seed 61。
+CUDA reference 与 Ascend 950 candidate 使用相同 fixture，各拓扑训练 500 步。
+下表为 loss 对照，`diff = NPU loss - GPU loss`；曲线见 [PR #190](https://gitcode.com/Ascend/torchtitan-ascend/pull/190)。
+
+| 拓扑 | steps | GPU final loss | NPU final loss | final diff | mean abs diff | max abs diff | mean rel error | max rel error |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| cp2 | 500 | 2.672269 | 2.684941 | 0.012672 | 0.004574 | 0.028400 | 0.167742% | 1.018862% |
+| cp4 | 500 | 2.680279 | 2.683335 | 0.003056 | 0.004106 | 0.042507 | 0.149218% | 1.381605% |
+| cp8 | 500 | 2.685600 | 2.670897 | -0.014703 | 0.007774 | 0.025120 | 0.285745% | 0.949958% |
+| ddp2 | 500 | 2.681354 | 2.674269 | -0.007084 | 0.007475 | 0.028124 | 0.275058% | 1.056959% |
+| ddp8 | 500 | 2.689227 | 2.681564 | -0.007663 | 0.004185 | 0.018610 | 0.153159% | 0.713506% |
+| ep8 | 500 | 2.664427 | 2.686571 | 0.022143 | 0.006043 | 0.024619 | 0.222537% | 0.863515% |
+| fsdp2-cp4 | 500 | 2.669189 | 2.690247 | 0.021058 | 0.006200 | 0.021058 | 0.228631% | 0.788914% |
+| fsdp2-pp4 | 500 | 2.644457 | 2.664284 | 0.019827 | 0.012681 | 0.042209 | 0.472692% | 1.653069% |
+| fsdp2-tp2-pp2 | 500 | 2.652910 | 2.628390 | -0.024519 | 0.006831 | 0.024519 | 0.253843% | 0.924247% |
+| fsdp2-tp4 | 500 | 2.680554 | 2.681143 | 0.000588 | 0.003868 | 0.016674 | 0.140648% | 0.630088% |
+| fsdp2-tp4-ep8 | 500 | 2.696242 | 2.687403 | -0.008838 | 0.004365 | 0.019500 | 0.158281% | 0.639538% |
+| fsdp4-tp2 | 500 | 2.682959 | 2.681753 | -0.001207 | 0.003475 | 0.016113 | 0.126091% | 0.571566% |
+| fsdp8 | 500 | 2.684637 | 2.679167 | -0.005470 | 0.003644 | 0.025432 | 0.132146% | 0.901988% |
+| hsdp2x4 | 500 | 2.688979 | 2.680238 | -0.008742 | 0.004095 | 0.027303 | 0.149189% | 0.976326% |
+| hsdp4x2 | 500 | 2.684929 | 2.677582 | -0.007348 | 0.004834 | 0.024941 | 0.176578% | 0.883491% |
+| pp8 | 500 | 2.647608 | 2.631306 | -0.016302 | 0.009544 | 0.032145 | 0.354263% | 1.164133% |
+| single | 500 | 2.678719 | 2.681564 | 0.002845 | 0.005308 | 0.027203 | 0.194638% | 0.985560% |
+| tp2-cp4 | 500 | 2.684263 | 2.668397 | -0.015867 | 0.008689 | 0.033775 | 0.319523% | 1.266334% |
+| tp8 | 500 | 2.681278 | 2.683371 | 0.002093 | 0.003725 | 0.017052 | 0.135749% | 0.663948% |
+
+## 测试入口
 
 CPU 检查覆盖配置、checkpoint roundtrip、文档边界、padding 和 CP 重排元数据：
 
@@ -183,11 +214,8 @@ ASCEND_RT_VISIBLE_DEVICES=0,1 python -m torch.distributed.run --standalone --npr
 
 该检查覆盖 FP32/BF16、复制与分片 DTensor 的初始化分布及 seed 复现性，
 以及均匀/不均匀词表分片、跨 shard label、`IGNORE_INDEX`、两种 reduction 的
-loss 和 logits 梯度。两项原生路径已在 Ascend 950、CANN 9.2.0、PyTorch
-`2.15.0+cpu`、torch_npu `1a25e6b`、TorchTitan `edde21fb` 的 eager 环境验证。
-此结果不替代其他依赖版本、编译路径和完整模型训练的验证。
+loss 和 logits 梯度。
 
 短程训练测试使用单卡 BF16、上下文长度 32，每个用例运行两步，覆盖无重计算、
 默认重计算、全重计算，以及 `loss`、`fused_binary_activation` 局部编译区域的单独和联合启用。
 同时检查 sparse、warmup、frozen 阶段和 GLM-5.3 MTP 的参数更新行为。
-这些测试不作为 released 模型精度、长期收敛或所有并行与编译组合的验证结论。
