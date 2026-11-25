@@ -3,7 +3,7 @@
 ARG CPU_BASE_IMAGE=python:3.12-slim-bookworm
 ARG A2_BASE_IMAGE=ascendai/cann:9.2.0-910b-ubuntu22.04-py3.12
 ARG ASCEND_REPO=https://gitcode.com/Ascend/torchtitan-ascend.git
-ARG ASCEND_BRANCH=refactor/npu-override
+ARG ASCEND_BRANCH=main
 
 FROM ${CPU_BASE_IMAGE} AS cpu
 ARG MAX_JOBS=32

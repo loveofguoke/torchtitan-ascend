@@ -13,7 +13,7 @@ NPU DSA 实现位于 `torchtitan_ascend/overrides/glm5_dsa.py`，由 GLM NPU rec
 
 ## 训练配置
 
-配置模块为 `torchtitan_ascend.recipes.glm5`。
+配置模块为 `torchtitan_ascend_recipes.models.glm5`。
 
 | CONFIG | 模型 |
 |---|---|
@@ -49,7 +49,7 @@ TorchNPU 的 SparseFlashAttention autograd 提供。
 在 TorchTitan 源码目录创建 `glm5_stages.py`：
 
 ```python
-from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_npu
 
 
 def glm5_warmup():
@@ -71,7 +71,7 @@ def glm5_sparse():
 ```bash
 cd "$TORCHTITAN_SRC"
 ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.glm5 CONFIG=glm5_2_debugmodel_npu \
+    MODULE=torchtitan_ascend_recipes.models.glm5 CONFIG=glm5_2_debugmodel_npu \
     ./run_train.sh
 ```
 
@@ -81,7 +81,7 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 
 ```python
 from torchtitan.config.parallelism import ParallelismConfig
-from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_npu
 
 
 def glm5_tp2():

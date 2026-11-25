@@ -3,7 +3,10 @@
 
 import torch
 
-from torchtitan_ascend.overrides.kda import npu_chunk_kda, NpuChunkKDAFunction
+from torchtitan_ascend.overrides.common.attention.kda import (
+    chunk_kda,
+    AscendChunkKDAFunction,
+)
 
 
 def test_kda_autograd_flags_are_positional(monkeypatch):
@@ -13,9 +16,9 @@ def test_kda_autograd_flags_are_positional(monkeypatch):
         calls.append(args)
         return args[0].clone(), None
 
-    monkeypatch.setattr(NpuChunkKDAFunction, "forward", forward)
+    monkeypatch.setattr(AscendChunkKDAFunction, "forward", forward)
     q = torch.randn(1, 4, 2, 128)
-    out, state = npu_chunk_kda(
+    out, state = chunk_kda(
         q,
         q,
         q,

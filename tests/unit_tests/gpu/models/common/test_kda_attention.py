@@ -27,7 +27,7 @@ from torchtitan.models.common.attention.cp_linear_attention import (
 )
 from torchtitan.models.common.attention.kda import InnerKDA, KDA, KDAKernel
 
-from torchtitan_ascend.overrides.kda import npu_kda
+from torchtitan_ascend.overrides.common.attention.kda import npu_kda
 
 _HAS_ATTENTION_GYM_KDA = (
     importlib.util.find_spec("attn_gym") is not None and torch.npu.is_available()

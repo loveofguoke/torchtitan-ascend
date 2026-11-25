@@ -66,7 +66,7 @@ def test_output_lse_and_gradients(dtype, heads, window, monkeypatch):
         )
 
     if dtype == torch.bfloat16:
-        from torchtitan_ascend.patches.varlen_attention import _attention
+        from torchtitan_ascend.patches.common.varlen_attention import _attention
 
         monkeypatch.setattr(_attention, "_lse", forbidden)
         result = varlen.varlen_attn(

@@ -338,7 +338,7 @@ def test_fused_kl_matches_loss_and_scaled_indexer_gradients(npu, dense):
 def test_all_padding_keeps_attention_and_indexer_backward_dependencies(npu, stage):
     from torchtitan.config.override import apply_overrides
     from torchtitan_ascend import setup
-    from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+    from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_npu
 
     setup()
     config = glm5_2_debugmodel_npu(seq_len=8, indexer_stage=stage)
@@ -378,7 +378,7 @@ def test_all_padding_keeps_attention_and_indexer_backward_dependencies(npu, stag
 def test_scaled_recipe_fused_attention_and_indexer_backward(npu, stage):
     from torchtitan.config.override import apply_overrides
     from torchtitan_ascend import setup
-    from torchtitan_ascend.recipes.glm5 import glm5_2_scaled_debugmodel_npu
+    from torchtitan_ascend_recipes.models.glm5 import glm5_2_scaled_debugmodel_npu
 
     setup()
     config = glm5_2_scaled_debugmodel_npu(seq_len=8, indexer_stage=stage)
@@ -416,7 +416,7 @@ def test_scaled_recipe_fused_attention_and_indexer_backward(npu, stage):
 def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
     from torchtitan.config.override import apply_overrides
     from torchtitan_ascend import setup
-    from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+    from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_npu
 
     torch.manual_seed(61)
     setup()
@@ -492,7 +492,7 @@ def test_warmup_full_key_width_boundary(npu, nope_dim, keys):
 @pytest.mark.parametrize("topk", [1024, 2048])
 def test_sparse_stage_kl_matches_selected_keys(npu, topk, monkeypatch):
     from torchtitan.config.override import apply_overrides
-    from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+    from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_npu
 
     observed = {}
     original_indexer = npu.npu_lightning_indexer

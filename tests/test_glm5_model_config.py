@@ -125,7 +125,7 @@ class TestGlm5Config(unittest.TestCase):
         self.assertEqual(len(glm5_3.mtp_layers), 1)
 
     def test_glm5_3_recipes_select_versioned_flavors(self) -> None:
-        from torchtitan_ascend.recipes.glm5 import (
+        from torchtitan_ascend_recipes.models.glm5 import (
             glm5_3_debugmodel_mtp_npu,
             glm5_3_debugmodel_npu,
             glm5_3_scaled_debugmodel_npu,
@@ -143,14 +143,14 @@ class TestGlm5Config(unittest.TestCase):
         )
 
     def test_mtp_recipe_builds_one_prediction_depth(self) -> None:
-        from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_mtp_npu
+        from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_mtp_npu
 
         config = glm5_2_debugmodel_mtp_npu()
         self.assertEqual(len(config.model.mtp_layers), 1)
 
     def test_mtp_recipe_exposes_loss_scale(self) -> None:
         from torchtitan.models.deepseek_v3.mtp import MTPLoss
-        from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_mtp_npu
+        from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_mtp_npu
 
         config = glm5_2_debugmodel_mtp_npu(mtp_scale=0.125)
         loss_config = config.loss.loss_fn
@@ -165,7 +165,7 @@ class TestGlm5Config(unittest.TestCase):
             DefaultActivationRematConfig,
             FullActivationRematConfig,
         )
-        from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu, npu_changes
+        from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_npu, npu_changes
 
         for policy in (
             None,
@@ -191,7 +191,7 @@ class TestGlm5Config(unittest.TestCase):
     def test_npu_override_preserves_upstream_rope(self) -> None:
         from torchtitan.config.override import apply_overrides
         from torchtitan.models.common.rope import ComplexRoPE
-        from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_mtp_npu
+        from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_mtp_npu
 
         config = glm5_2_debugmodel_mtp_npu()
         attention_configs = [
@@ -219,7 +219,7 @@ class TestGlm5Config(unittest.TestCase):
 
     def test_sparse_training_rejects_padded_topk(self) -> None:
         from torchtitan.config.override import apply_overrides
-        from torchtitan_ascend.recipes.glm5 import glm5_2_debugmodel_npu
+        from torchtitan_ascend_recipes.models.glm5 import glm5_2_debugmodel_npu
 
         for stage in ("sparse", "warmup", "frozen"):
             for topk in (8, 512, 1024, 1536, 2048, 3072, 8192):

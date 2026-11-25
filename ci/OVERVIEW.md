@@ -11,7 +11,7 @@
 
 The build entrypoint is `ci/build.sh`, the Dockerfile is `ci/Dockerfile`, and the default architecture is `linux/arm64`. The images install TorchTitan at `/opt/torchtitan` and preinstall this repository and its dependencies at `/opt/torchtitan-ascend` as the baseline environment. Tests run from `/opt/torchtitan`.
 
-The image build prepares the baseline from `refactor/npu-override` in the [official repository](https://gitcode.com/Ascend/torchtitan-ascend). Reuse the image across runs; each test uses the source, scripts, and lists checked out by the pipeline.
+The image build prepares the baseline from `main` in the [official repository](https://gitcode.com/Ascend/torchtitan-ascend). Reuse the image across runs; each test uses the source, scripts, and lists checked out by the pipeline.
 
 | Component | Version |
 | ------ | ------ |
@@ -30,7 +30,7 @@ Run from the repository root on an aarch64 build machine with Docker installed a
 | Build Variable | Purpose | Default |
 | ------ | ------ | ------ |
 | `ASCEND_REPO` | Remote HTTPS clone URL for this repository | `https://gitcode.com/Ascend/torchtitan-ascend.git` |
-| `ASCEND_BRANCH` | Branch to clone | `refactor/npu-override` |
+| `ASCEND_BRANCH` | Branch to clone | `main` |
 | `MAX_JOBS` | Source compilation parallelism; adjust to available memory | `32` |
 | `CORPORATE_CA_FILE` | Path to a PEM CA certificate for the corporate HTTPS gateway | Auto-detect a host certificate |
 
@@ -70,6 +70,12 @@ bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-8card
 ```
 
 The script installs code from its repository, copies adapted tests, and runs the corresponding list. The A2 test runner loads CANN and the other runtime environments automatically, including when invoked through `docker exec`; no manual entrypoint invocation is required.
+
+### Test-Specific Dependencies
+
+[install-test-deps.sh](install-test-deps.sh) manages Python packages required by unit tests. Image builds use the script to preinstall dependencies. The CPU and two-card A2 test jobs call the same script before running tests and install any missing or mismatched versions. CPU tests install TorchAO and Dist-MoE, and two-card A2 tests install TorchAO.
+
+When a new test requires another Python package, pin its version and source in this script and specify the applicable test targets. Installation uses `--no-deps`, so declare any additional packages the test needs. Include tests that depend on external data or services only when CI can reliably access those resources.
 
 ### Local CPU Validation
 

@@ -21,8 +21,8 @@ class MoonEPConfig:
     tokens_per_rank: int | None = None
     recompute_dispatch: bool = False
     validate_routing: bool = False
-    grad_publish: str = "strong"
-    prefetch_sync: bool = True
+    grad_publish: str = "collective"
+    prefetch_sync: bool = False
     trace: bool = False
     trace_sync: bool = False
     allocation_diagnostics: bool = False

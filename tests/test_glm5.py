@@ -11,7 +11,7 @@ import torch.distributed as dist
 from torchtitan.distributed.activation_remat import DefaultActivationRematConfig
 from torchtitan.models.base.module import Module
 from torchtitan_ascend import setup
-from torchtitan_ascend.recipes.glm5 import (
+from torchtitan_ascend_recipes.models.glm5 import (
     glm5_2_debugmodel_mtp_npu,
     glm5_2_debugmodel_npu,
     glm5_3_debugmodel_mtp_npu,

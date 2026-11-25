@@ -52,6 +52,7 @@ pre-commit run --all-files
 ### 命名与代码位置
 
 - 名称准确描述实际职责，生产接口不使用 `toy`、`test`、`temp` 等名称代替用途；沿用 TorchTitan、PyTorch 或所属库的已有命名。非上游接口约束的计数名称使用 `num_` 前缀。
+- override 实现类名以 `Ascend`、`Triton` 等前缀区分 AscendC、Triton 等算子实现技术，不按算子来源（如 FLA 等第三方依赖）区分；override 入口统一命名为 `npu_<组件或职责>`，不绑定具体实现，算子实现的选择与分配机制待实际扩展需求出现时再引入；辅助函数按实际职责命名，外部 API 保持原名。
 - `axis` / `axes` 表示具体 DeviceMesh 轴；`dim` 表示张量维度，mesh 的维数描述仍可使用 dimensional。调用上游 API 时保留其原参数名，在本地表达具体 mesh 轴时使用相应名称。
 - 新增或重写的模型张量代码使用逻辑形状后缀，如 `x_BLD`、`q_BLHK`；在模块开头说明字母含义。后缀表示逻辑维度，不随局部分片布局改名；不同模块的字母含义可不同，不为补后缀改动无关代码。
 - 将代码放在最通用且确有需要的位置：通用框架能力优先贡献上游，模型专用逻辑放在对应模型中，共享组件按实际复用需求组织。目录按实际实现需要组织，不预建空目录。
@@ -76,6 +77,7 @@ pre-commit run --all-files
 
 - 复用 TorchTitan 的模型、配置、训练入口和资源下载工具；必要差异通过合适的扩展接口或小范围继承实现，保留上游生命周期，不复制独立 Trainer、Engine 或配置解析器。外部并行库不能接管训练流程。
 - NPU override 默认执行 NPU 实现，不增加隐式 CPU fallback 或生产 eager 参考路径；测试数值参考、显式 CPU offload 和关闭图执行不属于此类 fallback。
+- 模型训练配方和共享配置放在 `torchtitan_ascend_recipes/models/`，可复用的测试专用配置按需放在 `torchtitan_ascend_recipes/tests/models/`；按用途而非验证状态分类，单个集成测试专用配置随测试定义维护。
 - recipe 只组合自己的配置；父模块 override 负责其接管子树的组合，不依赖调用者隐藏的顺序。改写外部全局符号按运行时补丁判断，不因位于 override 或临时上下文中而豁免。
 - 通用底层 kernel 优先贡献对应算子库。本仓可依赖 Ascend 算子库或外部组件，通过上游 override 或正式扩展接口接入，不把其设备实现加入另一套训练框架。
 - 上游尚未支持的模型遵循所选 TorchTitan 版本的适配规范，暂存于 `torchtitan_ascend/models/` 并提交上游 PR；进入所用上游基线后复用上游实现，保留必要 Ascend 适配。

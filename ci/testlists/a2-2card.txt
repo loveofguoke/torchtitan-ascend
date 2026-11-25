@@ -1,8 +1,16 @@
 # A2 2-card test list
 
-# --- tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py (2) ---
+# --- tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py (5 cases) ---
 tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestVisionEncoderCPUOffload::test_no_offload_policy_when_cpu_offload_is_off
 tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestVisionEncoderCPUOffload::test_vision_encoder_gets_the_same_offload_policy_as_the_decoder
+tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestVisionEncoderCPUOffload::test_backward_runs_with_cpu_offload_on_a_model_with_a_vision_encoder
+tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestConditionalVisionFSDP::test_mixed_rank_image_presence_completes_backward
+tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestConditionalVisionFSDP::test_mixed_rank_image_presence_completes_backward_with_cpu_offload
+
+# --- tests/unit_tests/gpu/distributed/test_remat_all_to_all.py (3 cases) ---
+tests/unit_tests/gpu/distributed/test_remat_all_to_all.py::TestAllToAllRematRegions::test_torchao_padded_dispatch_matches_unpadded
+tests/unit_tests/gpu/distributed/test_remat_all_to_all.py::TestAllToAllRematRegions::test_collective_replay_follows_region_policy
+tests/unit_tests/gpu/distributed/test_remat_all_to_all.py::TestAllToAllRematRegions::test_saved_w2_output_is_not_retained_under_ep
 
 # --- tests/unit_tests/gpu/models/common/test_varlen_attention.py (1) ---
 tests/unit_tests/gpu/models/common/test_varlen_attention.py::TestVarlenUlyssesNumerics::test_packed_forward_backward_matches_unsharded
@@ -19,3 +27,21 @@ tests/unit_tests/gpu/models/qwen3_5/test_offset_rmsnorm.py::TestOffsetRMSNormTen
 
 # --- tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py (1) ---
 tests/unit_tests/gpu/models/common/test_linear_inplace_wgrad_accum.py::test_fsdp_microbatches_add_into_running_grad
+
+# --- tests/unit_tests/gpu/distributed/flex_shard/test_dist_muon.py (2 cases) ---
+tests/unit_tests/gpu/distributed/flex_shard/test_dist_muon.py::TestDistMuon::test_matches_plain_muon_across_flat_checkpoint_block_sizes0
+tests/unit_tests/gpu/distributed/flex_shard/test_dist_muon.py::TestDistMuon::test_matches_plain_muon_across_flat_checkpoint_block_sizes1
+
+# --- tests/unit_tests/gpu/models/common/test_async_linear.py (4 cases) ---
+tests/unit_tests/gpu/models/common/test_async_linear.py::TestAsyncTensorParallelSharding::test_parallelize_keeps_async_collectives_in_projection_leaves
+tests/unit_tests/gpu/models/common/test_async_linear.py::TestAsyncTensorParallelSharding::test_w13_tp_shards_the_matrix_row_dimension
+tests/unit_tests/gpu/models/common/test_async_linear.py::TestAsyncTensorParallelSharding::test_stacked_w13_typechecks
+tests/unit_tests/gpu/models/common/test_async_linear.py::TestAsyncTensorParallelSharding::test_gpt_oss_attention_reshapes_gathered_tokens
+
+# --- tests/unit_tests/gpu/models/common/test_quantile_balance.py (1 cases) ---
+tests/unit_tests/gpu/models/common/test_quantile_balance.py::TestQuantileBalancingDistributed::test_distributed_quantile_balancing
+
+# --- tests/unit_tests/gpu/models/common/test_tensor_parallel_feed_forward.py (3 cases) ---
+tests/unit_tests/gpu/models/common/test_tensor_parallel_feed_forward.py::TestTensorParallelFeedForwardNumerics::test_matches_unsharded_with_and_without_sequence_parallel
+tests/unit_tests/gpu/models/common/test_tensor_parallel_feed_forward.py::TestTensorParallelFeedForwardNumerics::test_shared_expert_without_sp_reduces_at_parent_boundary
+tests/unit_tests/gpu/models/common/test_tensor_parallel_feed_forward.py::TestTensorParallelFeedForwardNumerics::test_shared_expert_with_sp_reduce_scatters_at_w2_boundary

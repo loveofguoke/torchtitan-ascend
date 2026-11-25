@@ -1,7 +1,25 @@
 # A2 8-card test list
 
-# --- tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py (4) ---
+# --- tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py (9 cases) ---
 tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_no_ep_fsdp_gt_num_experts_shards_feature_dimensions
 tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_no_ep_fsdp_le_num_experts_shards_dim0
 tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_no_ep_hsdp_ignores_dp_replicate
 tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_with_ep_fsdp_gt_num_experts_shards_feature_dimensions
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestApplyFsdpMoESharding::test_with_ep_keeps_output_postprocess_on_sparse_mesh
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestLinearStackingDistributed::test_w13_shards_dim_one
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestLinearStackingDistributed::test_tp_fsdp_initializes_gate_and_up_separately
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestLinearStackingDistributed::test_deepseek_v4_tp_keeps_attention_sink_two_dimensional
+tests/unit_tests/gpu/distributed/test_fsdp_moe_sharding.py::TestLinearStackingDistributed::test_qwen3_tied_hf_state_dict_loads_after_fsdp
+
+# --- tests/unit_tests/gpu/distributed/flex_shard/test_dist_muon.py (5 cases) ---
+tests/unit_tests/gpu/distributed/flex_shard/test_dist_muon.py::TestDistMuonNativeMatrixBatch::test_gate_up_matches_independent_matrix_updates_columns_to_matrix_shards
+tests/unit_tests/gpu/distributed/flex_shard/test_dist_muon.py::TestDistMuonNativeMatrixBatch::test_gate_up_matches_independent_matrix_updates_replicated_to_matrix_shards
+tests/unit_tests/gpu/distributed/flex_shard/test_dist_muon.py::TestDistMuonNativeMatrixBatch::test_gate_up_matches_independent_matrix_updates_rows_to_matrix_shards
+tests/unit_tests/gpu/distributed/flex_shard/test_dist_muon.py::TestDistMuonNativeMatrixBatch::test_gate_up_matches_independent_matrix_updates_rows_to_owned
+tests/unit_tests/gpu/distributed/flex_shard/test_dist_muon.py::TestDistMuonInitialExpertStorageContract::test_preserves_ep_shard_during_edp_shard_redistribution
+
+# --- tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py (1 cases) ---
+tests/unit_tests/gpu/distributed/test_fsdp_cpu_offload.py::TestVisionHSDP::test_image_then_empty_accumulation
+
+# --- tests/unit_tests/gpu/distributed/test_fsdp_embedding.py (1 cases) ---
+tests/unit_tests/gpu/distributed/test_fsdp_embedding.py::TestFSDPEmbedding::test_padding_lifecycle

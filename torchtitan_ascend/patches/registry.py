@@ -91,8 +91,22 @@ def apply_all() -> None:
     """Discover public patch modules, then install or defer their patches."""
     from . import __path__
 
-    for module in sorted(pkgutil.iter_modules(__path__), key=lambda info: info.name):
-        if not module.name.startswith("_") and module.name != "registry":
-            importlib.import_module(f"{__package__}.{module.name}")
+    modules = []
+    for entry in pkgutil.iter_modules(__path__):
+        if entry.name.startswith("_") or entry.name == "registry":
+            continue
+        module_name = f"{__package__}.{entry.name}"
+        if not entry.ispkg:
+            modules.append((entry.name, module_name))
+            continue
+        package = importlib.import_module(module_name)
+        modules.extend(
+            (module.name, f"{module_name}.{module.name}")
+            for module in pkgutil.iter_modules(package.__path__)
+            if not module.name.startswith("_")
+        )
+    # Keep registration order independent of the category a patch belongs to.
+    for _, module_name in sorted(modules):
+        importlib.import_module(module_name)
     for apply in _REGISTRY.values():
         apply()

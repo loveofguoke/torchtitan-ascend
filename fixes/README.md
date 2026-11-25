@@ -22,6 +22,7 @@ git -C triton-ascend apply \
 | torch_npu `1a25e6be` | [storage.patch](torch_npu/storage.patch) | 支持 remat 使用的空指针、正逻辑大小、不可扩容的 storage 占位对象；跟踪 [!47944](https://gitcode.com/Ascend/pytorch/merge_requests/47944)。 |
 | Triton-Ascend `3.6.0` | [TA-3-cxx20-launcher.patch](triton-ascend/TA-3-cxx20-launcher.patch) | 使用 C++20 编译 launcher，与 PyTorch 头文件一致；跟踪 [#1919](https://github.com/triton-lang/triton-ascend/pull/1919)。 |
 | Triton-Ascend `3.6.0` | [zero-stride-store.patch](triton-ascend/zero-stride-store.patch) | 为 compiled BlockMask 的 store 保留零步长 pointer 轴和 mask，保持 pointer、value、mask 形状一致。跟踪 [#2783](https://github.com/triton-lang/triton-ascend/pull/2783)。 |
+| CANN ops-transformer `v9.2.0` | [sfag-query-heads.patch](ops-transformer/sfag-query-heads.patch) | Ascend 950 的 SFAG 在 1 个 KV 头时接受 1–128 个 Q 头，支持 Kimi K3.1 单次 96 头反向。取自 [#14709](https://gitcode.com/cann/ops-transformer/pull/14709)；见 [Kimi K3.1 安装步骤](../docs/models/kimi_k3_1.md#2-环境安装)。 |
 
 ## 维护
 

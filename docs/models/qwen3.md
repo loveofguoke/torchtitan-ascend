@@ -2,7 +2,7 @@
 
 ## 训练配置
 
-配置模块：`torchtitan_ascend.recipes.qwen3`。
+配置模块：`torchtitan_ascend_recipes.models.qwen3`。
 
 | CONFIG | 模型 | 数据 |
 |---|---|---|
@@ -17,6 +17,6 @@
 ```bash
 cd torchtitan
 ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.qwen3 CONFIG=qwen3_debugmodel_npu \
+    MODULE=torchtitan_ascend_recipes.models.qwen3 CONFIG=qwen3_debugmodel_npu \
     ./run_train.sh
 ```

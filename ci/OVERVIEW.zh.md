@@ -11,7 +11,7 @@
 
 构建入口为 `ci/build.sh`，Dockerfile 为 `ci/Dockerfile`，默认架构为 `linux/arm64`。镜像将 TorchTitan 安装到 `/opt/torchtitan`，在 `/opt/torchtitan-ascend` 预装本仓及依赖，作为基础环境；测试在 `/opt/torchtitan` 下执行。
 
-构建时默认从[官方仓库](https://gitcode.com/Ascend/torchtitan-ascend)的 `refactor/npu-override` 分支准备基础环境。镜像可重复使用；每次测试使用流水线检出的待测代码、脚本和清单。
+构建时默认从[官方仓库](https://gitcode.com/Ascend/torchtitan-ascend)的 `main` 分支准备基础环境。镜像可重复使用；每次测试使用流水线检出的待测代码、脚本和清单。
 
 | 组件 | 版本 |
 | ------ | ------ |
@@ -30,7 +30,7 @@ A2 依赖的固定提交和安装步骤见 [install.sh](install.sh)。
 | 构建变量 | 用途 | 默认值 |
 | ------ | ------ | ------ |
 | `ASCEND_REPO` | 本仓的远端 HTTPS 克隆地址 | `https://gitcode.com/Ascend/torchtitan-ascend.git` |
-| `ASCEND_BRANCH` | 克隆源码使用的分支 | `refactor/npu-override` |
+| `ASCEND_BRANCH` | 克隆源码使用的分支 | `main` |
 | `MAX_JOBS` | 源码编译并行度，按主机内存调整 | `32` |
 | `CORPORATE_CA_FILE` | 企业 HTTPS 网关的 PEM 格式 CA 证书路径 | 自动查找宿主机证书 |
 
@@ -70,6 +70,12 @@ bash /opt/torchtitan-ascend/ci/run-testlist.sh a2-8card
 ```
 
 脚本安装所在仓库的代码、复制适配用例，并执行对应清单。A2 用例脚本自动加载 CANN 等运行环境，通过 `docker exec` 执行时也无需手动执行入口脚本。
+
+### 单测专用依赖
+
+[install-test-deps.sh](install-test-deps.sh) 管理单元测试专用的 Python 依赖。镜像构建使用该脚本预装依赖，CPU 和 A2 双卡测试在执行用例前调用同一脚本，安装缺失或版本不符的包。CPU 测试安装 TorchAO 和 Dist-MoE，A2 双卡测试安装 TorchAO。
+
+新增用例需要额外的 Python 包时，在该脚本中固定版本和安装来源，并声明适用的测试目标。安装使用 `--no-deps`，用例实际需要的其他依赖也应明确声明。依赖外部数据或服务的用例，只有在 CI 可稳定访问所需资源时才纳入清单。
 
 ### 本地验证 CPU
 

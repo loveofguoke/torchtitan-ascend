@@ -7,7 +7,7 @@ from torchtitan.models.kimi_k2_7 import vision_encoder
 
 __all__ = [
     "rotary_mul",
-    "enable_ascendc_rotary_mul",
+    "enable_vision_rotary_mul",
 ]
 
 # T = packed tokens, H = heads, K = head dim.
@@ -38,7 +38,7 @@ class _VisionRoPE:
         return rotary_mul(query, key, rope_cache, inverse=inverse)
 
 
-def enable_ascendc_rotary_mul():
+def enable_vision_rotary_mul():
     # Vision RoPE is called through a module lookup, without a Config node.
     # Rebind that lookup for this process, leaving shared ComplexRoPE unchanged.
     vision_encoder.ComplexRoPE = _VisionRoPE

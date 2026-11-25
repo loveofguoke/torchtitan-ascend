@@ -10,8 +10,11 @@ import torch
 import torch.distributed as dist
 
 from torchtitan_ascend import setup
-from torchtitan_ascend.recipes.qwen3 import qwen3_debugmodel_npu
-from torchtitan_ascend.recipes.qwen3_5 import qwen35_0_8b_npu, qwen35_debugmodel_npu
+from torchtitan_ascend_recipes.models.qwen3 import qwen3_debugmodel_npu
+from torchtitan_ascend_recipes.models.qwen3_5 import (
+    qwen35_0_8b_npu,
+    qwen35_debugmodel_npu,
+)
 
 
 @pytest.mark.npu

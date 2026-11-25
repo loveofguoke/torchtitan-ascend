@@ -57,6 +57,9 @@ cd "$WORKDIR" || { echo "ERROR: workdir $WORKDIR not found" >&2; exit 2; }
 source_dir="$(cd "$HERE/.." && pwd)"
 # Suppress the old NPU startup hook only while installing the checkout.
 PYTHONPATH= TORCH_DEVICE_BACKEND_AUTOLOAD=0 python -m pip install --no-deps -e "$source_dir"
+if [[ "$TARGET" == cpu || "$TARGET" == a2-2card ]]; then
+    PYTHONPATH= TORCH_DEVICE_BACKEND_AUTOLOAD=0 bash "$HERE/install-test-deps.sh" "${TARGET%%-*}"
+fi
 if [[ "$TARGET" == a2* ]]; then
     cp -a "$source_dir/tests/." ./tests/
 else

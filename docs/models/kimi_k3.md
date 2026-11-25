@@ -8,11 +8,11 @@ Kimi K3 使用 Kimi Delta Attention（KDA）与 Multi-head Latent Attention（ML
 
 | 模型规格 / flavor | 参数量 / 激活参数量 | 类型 | 上下文长度 / 输入尺寸 | MODULE | CONFIG | 默认数据 |
 |---|---|---|---|---|---|---|
-| `debugmodel` | 约 26.88M / 18.34M，含视觉编码器 | MoE，8 专家、top-2 | 默认 2048 tokens，图像最多 256 个 token | `torchtitan_ascend.recipes.kimi_k3` | `kimi_k3_debugmodel_npu` | 内置 CC-12m 测试数据 |
-| `7b` 基线 | 约 7.466B / 3.471B，含视觉编码器 | MoE，32 专家、top-2、2 个共享专家 | 同上 | `torchtitan_ascend.recipes.kimi_k3` | `kimi_k3_7b_npu` | 同上 |
-| `7b` MoonEP | 与 7B 基线相同 | 相同模型，使用 MoonEP 专家 | 同上 | `torchtitan_ascend.recipes.kimi_k3` | `kimi_k3_7b_moonep` | 同上 |
+| `debugmodel` | 约 26.88M / 18.34M，含视觉编码器 | MoE，8 专家、top-2 | 默认 2048 tokens，图像最多 256 个 token | `torchtitan_ascend_recipes.models.kimi_k3` | `kimi_k3_debugmodel_npu` | 内置 CC-12m 测试数据 |
+| `7b` 基线 | 约 7.466B / 3.471B，含视觉编码器 | MoE，32 专家、top-2、2 个共享专家 | 同上 | `torchtitan_ascend_recipes.models.kimi_k3` | `kimi_k3_7b_npu` | 同上 |
+| `7b` MoonEP | 与 7B 基线相同 | 相同模型，使用 MoonEP 专家 | 同上 | `torchtitan_ascend_recipes.models.kimi_k3` | `kimi_k3_7b_moonep` | 同上 |
 
-7B 为本仓自定义的测试规格，具体参数见 [CONFIG 设置](../../torchtitan_ascend/recipes/kimi_k3.py)。
+7B 为本仓自定义的测试规格，具体参数见 [CONFIG 设置](../../torchtitan_ascend_recipes/models/kimi_k3.py)。
 
 ### 1.2 特性支持
 
@@ -44,15 +44,18 @@ export FLA_NPU_SRC=/absolute/path/to/flash-linear-attention-npu
 
 git clone https://github.com/flashserve/flash-linear-attention-npu.git "$FLA_NPU_SRC"
 cd "$FLA_NPU_SRC"
-git checkout 7e39f9668eed285fc91cde0502f46cd48686a681
+git checkout 238a8ec002c45fe65ef956b17ed7c014153c1f42
 uv pip install -r requirements.txt pip setuptools wheel packaging
 ```
+
+该提交支持 KDA 前向和反向使用 `layout="TND"`。请使用同一份 FLA wheel 中的
+Python 接口、Stable ABI 库和 OPP。
 
 - 构建算子
 
   ```bash
   cd "$FLA_NPU_SRC"
-  # KDA 支持 Ascend 950 和 Ascend 920。按设备对应的 CANN SoC 设置下列变量
+  # KDA 支持 Ascend 950 和 Ascend 910。按设备对应的 CANN SoC 设置下列变量
   export FLA_NPU_SOC=ascend950
   FLA_NPU_OPS=causal_conv1d,causal_conv1d_bwd,chunk_gated_delta_rule_fwd,chunk_gated_delta_rule_bwd,chunk_kda_fwd,chunk_kda_bwd \
       python scripts/build_wheel.py --no-progress
@@ -94,7 +97,7 @@ export TORCHNPU_PRECOMPILE_THREADS=1
 ```bash
 cd "$TORCHTITAN_SRC"
 ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.kimi_k3 CONFIG=kimi_k3_debugmodel_npu \
+    MODULE=torchtitan_ascend_recipes.models.kimi_k3 CONFIG=kimi_k3_debugmodel_npu \
     ./run_train.sh
 ```
 
@@ -111,7 +114,7 @@ ASCEND_RT_VISIBLE_DEVICES=0 NGPU=1 ENTRYPOINT=torchtitan_ascend.train \
 构建带有以下并行配置的配方，修改命令配置 `MODULE` 和 `CONFIG` 以指向该配方。
 
 ```python
-from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu
+from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu
 
 
 def train_config():
@@ -151,8 +154,8 @@ ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NGPU=8 \
 | 支持特性 | 启用方式 | 备注 |
 |---|---|---|
 | MoonEP | 使用 `kimi_k3_7b_moonep` 配方 | 要求 Ascend 950 且 EP 并行数 > 1 |
-| Context Parallel（CP） | 设置 CP 度，构建新配方以调用 `apply_kimi_cp`。 | 要求连续序列分片，关闭 CP 负载均衡。KDA 的注意力头数须能被 TP × CP 整除。 |
-| NPU 融合算子 | 构建新配方以调用 `npu_fusion`。 | 融合 attention 匹配 Flex 配置，融合 SiTU-GLU 需要 `cann_ops_nn`。 |
+| Context Parallel（CP） | 设置 CP 度，构建新配方以调用 `kimi_k3_cp_transform`。 | 要求连续序列分片，关闭 CP 负载均衡。KDA 的注意力头数须能被 TP × CP 整除。 |
+| NPU 融合算子 | 构建新配方以调用 `kimi_k3_npu_fusion`。 | 融合 attention 匹配 Flex 配置，融合 SiTU-GLU 需要 `cann_ops_nn`。 |
 | 融合 permute/unpermute | 设置 EP 度，通过 `--override` 选择 dispatcher 或者 MC2。 | EP 度大于 1，all-to-all dispatcher 与 MC2 二选一，MC2 要求 `output_postprocess=None`。 |
 
 #### 5.3.1 MoonEP
@@ -163,17 +166,20 @@ ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NGPU=8 \
 cd "$TORCHTITAN_SRC"
 ASCEND_RT_VISIBLE_DEVICES=0,1 NGPU=2 \
     ENTRYPOINT=torchtitan_ascend.train \
-    MODULE=torchtitan_ascend.recipes.kimi_k3 \
+    MODULE=torchtitan_ascend_recipes.models.kimi_k3 \
     CONFIG=kimi_k3_7b_moonep \
     ./run_train.sh
 ```
 
 #### 5.3.2 上下文并行（Context Parallel）
 
-构建带有 `apply_kimi_cp` 的配方，修改命令配置 `MODULE` 和 `CONFIG` 以指向该配方。函数默认采用 Ulysses MLA 和 Ulysses KDA。
+构建带有 `kimi_k3_cp_transform` 的配方，修改命令配置 `MODULE` 和 `CONFIG` 以指向该配方。函数默认采用 Ulysses MLA 和 Ulysses KDA。
 
 ```python
-from torchtitan_ascend.recipes.kimi_k3 import apply_kimi_cp, kimi_k3_debugmodel_npu
+from torchtitan_ascend_recipes.models.kimi_k3 import (
+    kimi_k3_cp_transform,
+    kimi_k3_debugmodel_npu,
+)
 
 
 def debug_cp2():
@@ -181,7 +187,7 @@ def debug_cp2():
     config.parallelism.data_parallel_shard_degree = 1
     config.parallelism.context_parallel_degree = 2
     config.parallelism.context_parallel_load_balancer = None
-    return apply_kimi_cp(config)
+    return kimi_k3_cp_transform(config)
 ```
 
 #### 5.3.3 NPU 融合算子
@@ -189,12 +195,12 @@ def debug_cp2():
 修改运行配置为 `CONFIG=debug_fusion`。
 
 ```python
-from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu, npu_fusion
+from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu, kimi_k3_npu_fusion
 
 
 def debug_fusion(attn_backend="varlen"):
     config = kimi_k3_debugmodel_npu(attn_backend=attn_backend)
-    npu_fusion(config)
+    kimi_k3_npu_fusion(config)
     return config
 ```
 
@@ -204,7 +210,7 @@ def debug_fusion(attn_backend="varlen"):
 
 ```python
 from torchtitan.config.parallelism import ParallelismConfig
-from torchtitan_ascend.recipes.kimi_k3 import kimi_k3_debugmodel_npu
+from torchtitan_ascend_recipes.models.kimi_k3 import kimi_k3_debugmodel_npu
 
 
 def debug_ep8():
@@ -215,5 +221,13 @@ def debug_ep8():
 
 在 `./run_train.sh` 后追加所选实现的参数。
 
-- 融合 permute/unpermute 的 all-to-all dispatcher 使用 `--override torchtitan_ascend.overrides.token_dispatcher.npu_token_dispatcher`。
-- MC2 routed experts 使用 `--override torchtitan_ascend.overrides.mc2_routed_experts.npu_mc2_routed_experts`。
+- 融合 permute/unpermute 的 all-to-all dispatcher 使用 `--override torchtitan_ascend.overrides.common.moe.token_dispatcher.npu_token_dispatcher`。
+- MC2 routed experts 使用 `--override torchtitan_ascend.overrides.common.moe.mc2_routed_experts.npu_mc2_routed_experts`。
+
+MC2 默认关闭 routed-input 重放。需要用额外的反向通信减少激活保存量时，将上面的 MC2 参数替换为：
+
+```bash
+--override 'torchtitan_ascend.overrides.common.moe.mc2_routed_experts.npu_mc2_routed_experts={"recompute_routed_input":true}'
+```
+
+该选项仅在 EP 大于 1 且 remat 策略保留 dispatch 区域的层生效。反向为计算 `w13` 权重梯度额外执行一次 AllToAll。Ascend 950 的 MC2 combine 将 token 和路由分数按各自的 dtype 传给算子，两者均支持 BF16、FP16 和 FP32。

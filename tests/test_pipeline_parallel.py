@@ -49,7 +49,7 @@ def runtime(monkeypatch):
     state.comm = SimpleNamespace(backend="hccl")
     # Install this module's patch only; setup() would also apply the torch-level
     # patches, which need a real torch.
-    from torchtitan_ascend.patches import pipeline_parallel
+    from torchtitan_ascend.patches.distributed import pipeline_parallel
 
     pipeline_parallel.apply()
     return state

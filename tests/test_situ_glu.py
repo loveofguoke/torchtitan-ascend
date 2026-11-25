@@ -4,7 +4,7 @@
 import pytest
 import torch
 
-import torchtitan_ascend.overrides.situ_glu as MODULE
+import torchtitan_ascend.overrides.common.activation.situglu as MODULE
 from torch.testing import assert_close
 
 
@@ -65,7 +65,7 @@ def test_situ_accepts_packed_gate_up(monkeypatch, offsets):
         return gate_up[:, 0] * gate_up[:, 1]
 
     monkeypatch.setattr(MODULE, "situ_glu", fused)
-    actual = MODULE.ascendc_situ_glu(
+    actual = MODULE.npu_situ_glu(
         MODULE.SiTUGLU.Config(beta=4.0, linear_beta=25.0)
     ).build()(packed, offsets=offsets)
     expected = packed[:, 0] * packed[:, 1]
